@@ -1,0 +1,28 @@
+# Зависимости
+node_modules/
+.pnpm-store/
+
+# Результаты сборки
+dist/
+dist-ssr/
+*.local
+
+# Локальные файлы окружения (секреты)
+.env
+.env.local
+.env.*.local
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+
+# Логи и временные файлы
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+.tempmediaStorage/
+
+# Папка бэкапов и логов AI-агента (если есть)
+.gemini/
