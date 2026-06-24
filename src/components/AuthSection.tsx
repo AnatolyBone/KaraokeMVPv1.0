@@ -82,7 +82,7 @@ export const AuthSection: React.FC = () => {
 
     // Рендерим виджет Telegram в DOM, если мы не в WebApp и пользователь не авторизован
     if (!user && !isTelegramWebApp) {
-      const botName = 'lrc_maker_bot'; // Замените на юзернейм вашего бота в будущем
+      const botName = 'lrckaraoke_bot';
       const container = document.getElementById('telegram-widget-container');
       if (container && !container.hasChildNodes()) {
         const script = document.createElement('script');
