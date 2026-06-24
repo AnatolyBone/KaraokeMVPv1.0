@@ -10,33 +10,64 @@ const corsHeaders = {
 
 // Хелпер для вычисления HMAC-SHA256 подписи данных Telegram
 async function verifyTelegramHash(authData: Record<string, any>, botToken: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+
+  // 1. Если это авторизация из Telegram WebApp (передана строка initData)
+  if (authData.initData) {
+    const params = new URLSearchParams(authData.initData);
+    const hash = params.get('hash');
+    if (!hash) return false;
+
+    // Удаляем hash для создания data-check-string
+    params.delete('hash');
+
+    // Сортируем параметры по алфавиту и собираем в строку key=value с разделителем \n
+    const sortedParams = [...params.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const dataCheckString = sortedParams.map(([key, value]) => `${key}=${value}`).join('\n');
+
+    // Вычисляем HMAC-SHA256("WebAppData", botToken)
+    const webAppDataKey = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode("WebAppData"),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const secretKeyBuffer = await crypto.subtle.sign("HMAC", webAppDataKey, encoder.encode(botToken));
+
+    // Вычисляем HMAC-SHA256(secretKeyBuffer, dataCheckString)
+    const hmacKey = await crypto.subtle.importKey(
+      "raw",
+      secretKeyBuffer,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const calculatedSignature = await crypto.subtle.sign("HMAC", hmacKey, encoder.encode(dataCheckString));
+
+    const calculatedHash = Array.from(new Uint8Array(calculatedSignature))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    return calculatedHash === hash;
+  }
+
+  // 2. Иначе это авторизация из Telegram Login Widget
   const { hash, ...data } = authData;
   if (!hash) return false;
 
-  // 1. Сортируем ключи и собираем строку key=value
+  // Сортируем ключи и собираем строку key=value
   const dataCheckString = Object.keys(data)
     .sort()
     .map(key => `${key}=${data[key]}`)
     .join('\n');
 
-  const encoder = new TextEncoder();
-
-  // 2. Для WebApp/Widget Telegram вычисляет хэш с использованием SHA256 от токена бота
-  // Для виджета: ключ это SHA256("WebFiles") или HMAC-SHA256("WebAppData", botToken)
-  // Мы используем HMAC-SHA256("WebAppData", botToken) как стандартный подход для WebApp/Widget.
-  const webAppDataKey = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode("WebAppData"),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  
-  const botTokenHash = await crypto.subtle.sign("HMAC", webAppDataKey, encoder.encode(botToken));
+  // Для виджета: ключ это SHA256 от токена бота в бинарном формате
+  const sha256Buffer = await crypto.subtle.digest("SHA-256", encoder.encode(botToken));
 
   const hmacKey = await crypto.subtle.importKey(
     "raw",
-    botTokenHash,
+    sha256Buffer,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]

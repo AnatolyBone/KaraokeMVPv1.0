@@ -1,6 +1,6 @@
 import React from 'react';
 import { useKaraokeStore } from '../store/useKaraokeStore';
-import { Keyboard, BarChart2, ListPlus, Clock, SquarePlay, AlertCircle } from 'lucide-react';
+import { Keyboard, BarChart2, ListPlus, Clock, SquarePlay, AlertCircle, Heart, MessageCircle, Github } from 'lucide-react';
 import { RecentProjects } from './RecentProjects';
 import { AuthSection } from './AuthSection';
 import { localization } from '../utils/localization';
@@ -143,6 +143,59 @@ export const SidePanel: React.FC = () => {
 
       {/* Recent Projects Swapper */}
       <RecentProjects />
+
+      {/* Support and Feedback widget */}
+      <div
+        className={`rounded-2xl p-5 border shadow-sm transition-all ${
+          theme === 'dark'
+            ? 'bg-zinc-950/80 border-zinc-800/80 text-zinc-100'
+            : 'bg-white border-zinc-200 text-zinc-900'
+        }`}
+      >
+        <div className="flex items-center gap-2 mb-3 border-b border-zinc-150 dark:border-zinc-900 pb-3">
+          <Heart className="text-pink-500 fill-pink-500/15 animate-pulse" size={18} />
+          <h4 className="font-bold text-sm uppercase tracking-wider">{dict.supportTitle}</h4>
+        </div>
+        
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed mb-4">
+          {dict.supportDesc}
+        </p>
+
+        <div className="flex flex-col gap-2">
+          {/* Telegram Support Chat/Contact */}
+          <a
+            href="https://t.me/anatoly_bone"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-sky-500/5 hover:border-sky-500/30 text-xs font-semibold transition-all hover:scale-[1.01] text-zinc-700 dark:text-zinc-300"
+          >
+            <MessageCircle size={14} className="text-sky-500" />
+            <span>{dict.supportTelegram}</span>
+          </a>
+
+          {/* GitHub Issues Link */}
+          <a
+            href="https://github.com/AnatolyBone/KaraokeMVPv1.0/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-zinc-350 dark:hover:border-zinc-700 text-xs font-semibold transition-all hover:scale-[1.01] text-zinc-700 dark:text-zinc-300"
+          >
+            <Github size={14} className="text-zinc-500 dark:text-zinc-400" />
+            <span>{dict.supportGithub}</span>
+          </a>
+
+          {/* Donation / Support Button */}
+          <a
+            href="https://yoomoney.ru"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 p-2.5 rounded-xl bg-gradient-to-r from-pink-500/10 to-violet-500/10 border border-pink-500/20 hover:border-pink-500/40 text-xs font-bold text-pink-600 dark:text-pink-400 transition-all hover:scale-[1.01]"
+          >
+            <Heart size={14} className="text-pink-500" />
+            <span>{dict.supportDonate}</span>
+          </a>
+        </div>
+      </div>
     </div>
   );
 };

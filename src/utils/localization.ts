@@ -114,6 +114,11 @@ export const localization = {
     authSynced: 'Облако синхронизировано ✓',
     authSyncError: 'Ошибка синхронизации',
     authGuest: 'Локальный режим (сохранение в браузере)',
+    supportTitle: 'Поддержка и связь',
+    supportDesc: 'Нашли баг или хотите предложить идею? Напишите разработчику или поддержите проект!',
+    supportTelegram: 'Связаться в Telegram',
+    supportGithub: 'Создать Issue на GitHub',
+    supportDonate: 'Поддержать автора (Донат)',
   },
   en: {
     appName: 'Karaoke LRC Maker',
@@ -230,5 +235,10 @@ export const localization = {
     authSynced: 'Cloud synced ✓',
     authSyncError: 'Sync error',
     authGuest: 'Local mode (saved in browser)',
+    supportTitle: 'Support & Feedback',
+    supportDesc: 'Found a bug or have a suggestion? Get in touch or support the project!',
+    supportTelegram: 'Message on Telegram',
+    supportGithub: 'Create Issue on GitHub',
+    supportDonate: 'Support Author (Donate)',
   }
 };
