@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { AppStep, LyricLine, WordTiming, VideoStyleOptions } from '../types';
+import { AppStep, LyricLine, WordTiming, VideoStyleOptions, UserProfile } from '../types';
 import { splitWordIntoSyllables } from '../utils/hyphenation';
 import { parseLRC } from '../utils/lrc';
 import { supabase } from '../services/supabaseClient';
@@ -124,8 +124,11 @@ interface KaraokeState {
 
   currentProjectId: string | null;
   user: User | null;
+  userProfile: UserProfile | null;
   syncing: boolean;
   setUser: (user: User | null) => void;
+  setUserProfile: (profile: UserProfile | null) => void;
+  fetchUserProfile: (userId: string) => Promise<void>;
   setSyncing: (syncing: boolean) => void;
   syncProjects: () => Promise<void>;
 
@@ -170,6 +173,7 @@ export const useKaraokeStore = create<KaraokeState>()(
       theme: 'dark',
       timingMode: 'line',
       user: null,
+      userProfile: null,
       syncing: false,
       
       bpm: null,
@@ -222,7 +226,30 @@ export const useKaraokeStore = create<KaraokeState>()(
 
       setSyllableMode: (syllableMode) => set({ syllableMode, currentSyllableIndex: 0 }),
 
-      setUser: (user) => set({ user }),
+      setUser: (user) => {
+        set({ user });
+        if (user) {
+          get().fetchUserProfile(user.id);
+        } else {
+          set({ userProfile: null });
+        }
+      },
+      setUserProfile: (userProfile) => set({ userProfile }),
+      fetchUserProfile: async (userId) => {
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+          if (error) throw error;
+          if (data) {
+            set({ userProfile: data as UserProfile });
+          }
+        } catch (err) {
+          console.error('Failed to fetch user profile:', err);
+        }
+      },
       setSyncing: (syncing) => set({ syncing }),
 
       saveCurrentAsProject: async (title) => {

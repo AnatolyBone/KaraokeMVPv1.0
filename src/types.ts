@@ -68,3 +68,13 @@ export interface RenderStats {
   visualizerTime: number;
 }
 
+export interface UserProfile {
+  id: string;
+  username: string | null;
+  avatar_url: string | null;
+  telegram_id: number;
+  role: 'free' | 'pro' | 'admin';
+  created_at: string;
+  updated_at: string;
+}
+

@@ -11,9 +11,10 @@ import { ExportVideoPanel } from './features/export-video/ExportVideoPanel';
 import { SidePanel } from './components/SidePanel';
 import { TimelineEditor } from './components/TimelineEditor';
 import { localization } from './utils/localization';
-import { Sun, Moon, Trash2, Type, Clock, Sparkles, Edit3, Zap, Settings } from 'lucide-react';
+import { Sun, Moon, Trash2, Type, Clock, Sparkles, Edit3, Zap, Settings, Shield } from 'lucide-react';
 import { clearAudioFromDB, clearCoverFromDB } from './utils/db';
 import { supabase } from './services/supabaseClient';
+import { AdminPanelModal } from './components/AdminPanelModal';
 
 const App: React.FC = () => {
   const {
@@ -26,7 +27,10 @@ const App: React.FC = () => {
     audioUrl,
     language,
     setLanguage,
+    userProfile,
   } = useKaraokeStore();
+
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
 
   // Локальное переключение режима внутри Шага 2 ('sync' | 'tune')
   const [subMode, setSubMode] = useState<'sync' | 'tune'>('sync');
@@ -48,7 +52,7 @@ const App: React.FC = () => {
   // Listen to Supabase Auth Changes
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
-      useKaraokeStore.setState({ user: session?.user || null });
+      useKaraokeStore.getState().setUser(session?.user || null);
       if (session?.user) {
         useKaraokeStore.getState().syncProjects();
       }
@@ -245,6 +249,16 @@ const App: React.FC = () => {
               </button>
             </div>
 
+            {userProfile?.role === 'admin' && (
+              <button
+                onClick={() => setIsAdminOpen(true)}
+                className={`p-2 rounded-xl border hover:scale-105 transition-all bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-500`}
+                title={dict.adminButton}
+              >
+                <Shield size={18} />
+              </button>
+            )}
+
             <button
               onClick={toggleTheme}
               className={`p-2 rounded-xl border hover:scale-105 transition-all ${
@@ -403,6 +417,8 @@ const App: React.FC = () => {
           <span>© {new Date().getFullYear()} Karaoke LRC Maker • {language === 'ru' ? 'Работает локально в вашем браузере без серверов' : 'Works locally in your browser without servers'}</span>
         </div>
       </footer>
+
+      <AdminPanelModal isOpen={isAdminOpen} onClose={() => setIsAdminOpen(false)} />
     </div>
   );
 };
