@@ -133,7 +133,9 @@ export const AudioLoader: React.FC = () => {
   }, [audioUrl, audioFileName, trackMetadata, rawText, language, setLines, setRawText, autoSearchedFile]);
 
   const handleFile = async (file: File) => {
-    if (!file.type.startsWith('audio/')) {
+    const isAudioMime = file.type.startsWith('audio/');
+    const hasAudioExtension = /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name);
+    if (!isAudioMime && !hasAudioExtension) {
       alert(language === 'ru' ? 'Пожалуйста, выберите корректный аудиофайл (MP3, WAV, OGG, M4A)' : 'Please select a valid audio file (MP3, WAV, OGG, M4A)');
       return;
     }
@@ -225,7 +227,15 @@ export const AudioLoader: React.FC = () => {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setTgTracks(data || []);
+        const uniqueTracks: any[] = [];
+        const seenFileIds = new Set<string>();
+        for (const track of (data || [])) {
+          if (track.file_id && !seenFileIds.has(track.file_id)) {
+            seenFileIds.add(track.file_id);
+            uniqueTracks.push(track);
+          }
+        }
+        setTgTracks(uniqueTracks);
       }
     } catch (err) {
       console.error('Failed to fetch Telegram tracks:', err);
@@ -252,7 +262,13 @@ export const AudioLoader: React.FC = () => {
       }
 
       const blob = await response.blob();
-      const file = new File([blob], track.file_name, { type: blob.type || 'audio/mpeg' });
+      const fileType = blob.type && blob.type.startsWith('audio/')
+        ? blob.type
+        : (track.file_name.endsWith('.wav') ? 'audio/wav'
+           : track.file_name.endsWith('.ogg') ? 'audio/ogg'
+           : track.file_name.endsWith('.m4a') ? 'audio/x-m4a'
+           : 'audio/mpeg');
+      const file = new File([blob], track.file_name, { type: fileType });
       await handleFile(file);
       setShowTgImport(false);
     } catch (err: any) {
@@ -262,16 +278,17 @@ export const AudioLoader: React.FC = () => {
     }
   };
 
-  const handleDeleteTgTrack = async (e: React.MouseEvent, trackId: string) => {
+  const handleDeleteTgTrack = async (e: React.MouseEvent, track: any) => {
     e.stopPropagation();
     if (!confirm(dict.adminDeleteConfirm)) return;
     try {
       const { error } = await supabase
         .from('telegram_audio_shares')
         .delete()
-        .eq('id', trackId);
+        .eq('file_id', track.file_id)
+        .eq('telegram_id', track.telegram_id);
       if (error) throw error;
-      setTgTracks((prev) => prev.filter((t) => t.id !== trackId));
+      setTgTracks((prev) => prev.filter((t) => t.file_id !== track.file_id));
     } catch (err: any) {
       alert(`Delete failed: ${err.message}`);
     }
@@ -417,7 +434,7 @@ export const AudioLoader: React.FC = () => {
                         <div className="flex items-center gap-1 shrink-0">
                           {downloadingTgId !== track.id && (
                             <button
-                              onClick={(e) => handleDeleteTgTrack(e, track.id)}
+                              onClick={(e) => handleDeleteTgTrack(e, track)}
                               className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/5 transition-colors"
                             >
                               <Trash2 size={13} />

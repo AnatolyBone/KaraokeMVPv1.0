@@ -300,6 +300,28 @@ Deno.serve(async (req) => {
         const duration = audio.duration || null;
         const fileSize = audio.file_size || null;
 
+        // Проверяем, нет ли уже этой записи у пользователя в БД (предотвращаем дублирование от ретраев вебхука)
+        try {
+          const { data: existingShare, error: checkError } = await supabaseAdmin
+            .from('telegram_audio_shares')
+            .select('id')
+            .eq('telegram_id', fromUser.id)
+            .eq('file_id', finalFileId)
+            .maybeSingle();
+
+          if (!checkError && existingShare) {
+            const trackLabel = artist && title ? `«${artist} — ${title}»` : `«${fileName}»`;
+            await sendTelegramMessage(
+              chatId,
+              `🎵 Трек ${trackLabel} уже импортирован ранее и доступен на сайте!`,
+              botToken
+            );
+            return new Response('Audio already shared', { status: 200 });
+          }
+        } catch (err) {
+          console.error('Check existing shared audio error:', err);
+        }
+
         const { error: insertError } = await supabaseAdmin.from('telegram_audio_shares').insert({
           telegram_id: fromUser.id,
           file_id: finalFileId,
