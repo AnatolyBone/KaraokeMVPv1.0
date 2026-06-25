@@ -204,4 +204,40 @@ CREATE POLICY "Allow delete auth session by ID" ON public.telegram_auth_sessions
 DROP POLICY IF EXISTS "Allow insert auth session" ON public.telegram_auth_sessions;
 CREATE POLICY "Allow insert auth session" ON public.telegram_auth_sessions FOR INSERT WITH CHECK (true);
 
+-- 7. ТАБЛИЦА ОБЩИХ ТРЕКОВ ИЗ TELEGRAM BOT
+CREATE TABLE IF NOT EXISTS public.telegram_audio_shares (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    telegram_id BIGINT NOT NULL,
+    file_id TEXT NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT,
+    duration INT,
+    artist VARCHAR(255),
+    title VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+-- Включение RLS
+ALTER TABLE public.telegram_audio_shares ENABLE ROW LEVEL SECURITY;
+
+-- Разрешаем чтение и удаление треков только владельцу (по связи profiles.telegram_id = telegram_id)
+DROP POLICY IF EXISTS "Users can see their own shared tracks" ON public.telegram_audio_shares;
+CREATE POLICY "Users can see their own shared tracks" ON public.telegram_audio_shares
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.telegram_id = telegram_audio_shares.telegram_id
+        )
+    );
+
+DROP POLICY IF EXISTS "Users can delete their own shared tracks" ON public.telegram_audio_shares;
+CREATE POLICY "Users can delete their own shared tracks" ON public.telegram_audio_shares
+    FOR DELETE USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.telegram_id = telegram_audio_shares.telegram_id
+        )
+    );
+
+
 

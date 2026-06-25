@@ -145,6 +145,13 @@ export const localization = {
     authWaitingForTelegram: 'Ожидание подтверждения в Telegram...',
     authSessionExpired: 'Сессия авторизации истекла. Пожалуйста, попробуйте снова.',
     authSessionError: 'Произошла ошибка при авторизации.',
+    audioTgImportBtn: 'Импортировать из Telegram-бота',
+    audioTgImportTitle: 'Треки из Telegram',
+    audioTgImportDesc: 'Отправьте аудиофайл боту @lrckaraoke_bot в Telegram, чтобы загрузить его здесь без скачивания на телефон.',
+    audioTgImportNoTracks: 'Нет доступных треков. Сначала отправьте файл боту.',
+    audioTgImportLoading: 'Загрузка списка треков...',
+    audioTgImportDownloading: 'Скачивание файла из Telegram...',
+    audioTgImportError: 'Ошибка при получении треков.',
   },
   en: {
     appName: 'Karaoke LRC Maker',
@@ -292,5 +299,12 @@ export const localization = {
     authWaitingForTelegram: 'Waiting for confirmation in Telegram...',
     authSessionExpired: 'Authorization session expired. Please try again.',
     authSessionError: 'An error occurred during authorization.',
+    audioTgImportBtn: 'Import from Telegram Bot',
+    audioTgImportTitle: 'Tracks from Telegram',
+    audioTgImportDesc: 'Send any audio file to the @lrckaraoke_bot in Telegram to load it here without downloading to your phone.',
+    audioTgImportNoTracks: 'No tracks available. Send a file to the bot first.',
+    audioTgImportLoading: 'Loading tracks...',
+    audioTgImportDownloading: 'Downloading file from Telegram...',
+    audioTgImportError: 'Error loading tracks.',
   }
 };

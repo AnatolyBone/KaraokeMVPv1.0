@@ -146,7 +146,55 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // 1. Проверка на входящий вебхук Telegram
+    // 1. Проверка на входящий вебхук Telegram (Аудио)
+    if (body && body.message && body.message.audio) {
+      const audio = body.message.audio;
+      const chatId = body.message.chat.id;
+      const fromUser = body.message.from;
+
+      if (fromUser) {
+        if (audio.file_size && audio.file_size > 20 * 1024 * 1024) {
+          await sendTelegramMessage(
+            chatId,
+            '⚠️ Файл слишком большой. Telegram Bot API разрешает скачивание файлов только до 20 МБ.',
+            botToken
+          );
+          return new Response('File size exceeds limit', { status: 200 });
+        }
+
+        const fileName = audio.file_name || `${audio.title || 'track'}.mp3`;
+        const artist = audio.performer || null;
+        const title = audio.title || null;
+        const duration = audio.duration || null;
+        const fileSize = audio.file_size || null;
+
+        const { error: insertError } = await supabaseAdmin.from('telegram_audio_shares').insert({
+          telegram_id: fromUser.id,
+          file_id: audio.file_id,
+          file_name: fileName,
+          file_size: fileSize,
+          duration: duration,
+          artist: artist,
+          title: title,
+        });
+
+        if (insertError) {
+          console.error('Insert shared audio error:', insertError);
+          await sendTelegramMessage(chatId, '⚠️ Ошибка сохранения метаданных аудио на сервере.', botToken);
+          return new Response('Insert audio failed', { status: 200 });
+        }
+
+        const trackLabel = artist && title ? `«${artist} — ${title}»` : `«${fileName}»`;
+        await sendTelegramMessage(
+          chatId,
+          `🎵 Трек ${trackLabel} успешно получен!\n\nОткройте сайт (https://karaoke-mv-pv1-0.vercel.app) и нажмите «Импортировать из Telegram» в разделе выбора музыки, чтобы загрузить его.`,
+          botToken
+        );
+      }
+      return new Response('Audio webhook processed successfully', { status: 200 });
+    }
+
+    // 1.2 Проверка на входящий вебхук Telegram (Текст)
     if (body && body.message && body.message.text) {
       const text = body.message.text;
       const chatId = body.message.chat.id;
@@ -250,7 +298,105 @@ Deno.serve(async (req) => {
       return new Response('Webhook processed successfully', { status: 200 });
     }
 
-    // 2. Стандартный флоу авторизации (Виджет или WebApp)
+    // 2. Дополнительные действия: поиск текстов в качестве CORS прокси
+    const { action } = body;
+    if (action === 'search-lyrics') {
+      const { query } = body;
+      try {
+        const response = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`);
+        if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+        const data = await response.json();
+        return new Response(JSON.stringify(data), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    if (action === 'get-exact-lyrics') {
+      const { trackName, artistName, albumName, duration } = body;
+      try {
+        const url = new URL('https://lrclib.net/api/get');
+        url.searchParams.append('track_name', trackName);
+        url.searchParams.append('artist_name', artistName);
+        if (albumName) url.searchParams.append('album_name', albumName);
+        if (duration) url.searchParams.append('duration', duration.toString());
+
+        const response = await fetch(url.toString());
+        if (response.status === 404) {
+          return new Response(JSON.stringify(null), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+        const data = await response.json();
+        return new Response(JSON.stringify(data), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    if (action === 'download-audio') {
+      const urlObj = new URL(req.url);
+      const fileId = body.fileId || urlObj.searchParams.get('file_id');
+      if (!fileId) {
+        return new Response(JSON.stringify({ error: 'Missing file_id' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      try {
+        const getFileUrl = `https://api.telegram.org/bot${botToken}/getFile?file_id=${fileId}`;
+        const getFileRes = await fetch(getFileUrl);
+        if (!getFileRes.ok) {
+          throw new Error(`Telegram getFile HTTP error: ${getFileRes.status}`);
+        }
+        const getFileData = await getFileRes.json();
+        if (!getFileData.ok || !getFileData.result || !getFileData.result.file_path) {
+          throw new Error(`Telegram getFile error: ${getFileData.description || 'Unknown error'}`);
+        }
+
+        const filePath = getFileData.result.file_path;
+        const downloadUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+
+        const audioRes = await fetch(downloadUrl);
+        if (!audioRes.ok) {
+          throw new Error(`Failed to download audio from Telegram: ${audioRes.status}`);
+        }
+
+        const audioBlob = await audioRes.blob();
+        return new Response(audioBlob, {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': audioRes.headers.get('Content-Type') || 'audio/mpeg',
+            'Content-Length': audioRes.headers.get('Content-Length') || audioBlob.size.toString(),
+            'Content-Disposition': `attachment; filename="${filePath.split('/').pop() || 'track.mp3'}"`,
+          },
+        });
+      } catch (err: any) {
+        console.error('Audio download proxy failed:', err);
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // 3. Стандартный флоу авторизации (Виджет или WebApp)
     const { authData } = body;
     if (!authData || !authData.id) {
       return new Response(JSON.stringify({ error: 'Missing authData' }), {

@@ -9,7 +9,8 @@ import { localization } from '../../utils/localization';
 import { LyricsSearchModal } from '../../components/LyricsSearchModal';
 import { getExactAllLyrics } from '../../services/lyricsProvider';
 import { parseLRC } from '../../utils/lrc';
-import { Upload, Trash2, Music, RefreshCw, Search } from 'lucide-react';
+import { Upload, Trash2, Music, RefreshCw, Search, Smartphone, Loader2 } from 'lucide-react';
+import { supabase } from '../../services/supabaseClient';
 
 export const AudioLoader: React.FC = () => {
   const {
@@ -28,8 +29,14 @@ export const AudioLoader: React.FC = () => {
     setCurrentProjectTitle,
     rawText,
     setRawText,
-    setLines
+    setLines,
+    user
   } = useKaraokeStore();
+
+  const [tgTracks, setTgTracks] = useState<any[]>([]);
+  const [loadingTg, setLoadingTg] = useState(false);
+  const [downloadingTgId, setDownloadingTgId] = useState<string | null>(null);
+  const [showTgImport, setShowTgImport] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -200,6 +207,76 @@ export const AudioLoader: React.FC = () => {
     }
   };
 
+  const fetchTelegramTracks = async () => {
+    if (!user) return;
+    setLoadingTg(true);
+    try {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('telegram_id')
+        .eq('id', user.id)
+        .single();
+
+      if (profileData?.telegram_id) {
+        const { data, error } = await supabase
+          .from('telegram_audio_shares')
+          .select('*')
+          .eq('telegram_id', profileData.telegram_id)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setTgTracks(data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch Telegram tracks:', err);
+    } finally {
+      setLoadingTg(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showTgImport && user) {
+      fetchTelegramTracks();
+    }
+  }, [showTgImport, user]);
+
+  const handleDownloadTgTrack = async (track: any) => {
+    setDownloadingTgId(track.id);
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-telegram?action=download-audio&file_id=${track.file_id}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to download audio: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const file = new File([blob], track.file_name, { type: blob.type || 'audio/mpeg' });
+      await handleFile(file);
+      setShowTgImport(false);
+    } catch (err: any) {
+      alert(`${dict.audioTgImportError}: ${err.message}`);
+    } finally {
+      setDownloadingTgId(null);
+    }
+  };
+
+  const handleDeleteTgTrack = async (e: React.MouseEvent, trackId: string) => {
+    e.stopPropagation();
+    if (!confirm(dict.adminDeleteConfirm)) return;
+    try {
+      const { error } = await supabase
+        .from('telegram_audio_shares')
+        .delete()
+        .eq('id', trackId);
+      if (error) throw error;
+      setTgTracks((prev) => prev.filter((t) => t.id !== trackId));
+    } catch (err: any) {
+      alert(`Delete failed: ${err.message}`);
+    }
+  };
+
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -262,14 +339,97 @@ export const AudioLoader: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex justify-center">
-            <button
-              onClick={() => setIsSearchOpen(true)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-violet-400 hover:text-violet-300 font-semibold rounded-xl text-sm transition-all shadow-sm cursor-pointer"
-            >
-              <Search size={16} />
-              <span>{dict.lyricsSearchBtn}</span>
-            </button>
+          <div className="flex flex-col gap-4">
+            <div className="flex justify-center gap-3">
+              <button
+                onClick={() => setIsSearchOpen(true)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-violet-400 hover:text-violet-300 font-semibold rounded-xl text-sm transition-all shadow-sm cursor-pointer"
+              >
+                <Search size={16} />
+                <span>{dict.lyricsSearchBtn}</span>
+              </button>
+
+              {user && (
+                <button
+                  onClick={() => setShowTgImport(!showTgImport)}
+                  className={`flex items-center gap-2 px-5 py-2.5 border font-semibold rounded-xl text-sm transition-all shadow-sm cursor-pointer ${
+                    showTgImport
+                      ? 'bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/25'
+                      : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-sky-400 hover:text-sky-350'
+                  }`}
+                >
+                  <Smartphone size={16} />
+                  <span>{dict.audioTgImportBtn}</span>
+                </button>
+              )}
+            </div>
+
+            {showTgImport && user && (
+              <div className={`rounded-2xl border p-4 text-left transition-all ${
+                theme === 'dark' ? 'bg-zinc-955 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+              }`}>
+                <h4 className="font-bold text-xs uppercase tracking-wider text-sky-500 mb-1">
+                  {dict.audioTgImportTitle}
+                </h4>
+                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-normal mb-3">
+                  {dict.audioTgImportDesc}
+                </p>
+
+                {loadingTg ? (
+                  <div className="flex items-center justify-center py-6 text-zinc-500">
+                    <RefreshCw className="animate-spin mr-2 h-4 w-4" />
+                    <span className="text-xs">{dict.audioTgImportLoading}</span>
+                  </div>
+                ) : tgTracks.length === 0 ? (
+                  <p className="text-xs text-zinc-400 py-4 text-center font-semibold">
+                    {dict.audioTgImportNoTracks}
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto pr-1">
+                    {tgTracks.map((track) => (
+                      <div
+                        key={track.id}
+                        onClick={() => !downloadingTgId && handleDownloadTgTrack(track)}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all text-xs font-semibold ${
+                          downloadingTgId === track.id
+                            ? 'border-sky-550/50 bg-sky-550/5 text-sky-500'
+                            : theme === 'dark'
+                              ? 'border-zinc-900 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-zinc-800'
+                              : 'border-zinc-100 bg-zinc-50/50 hover:bg-zinc-50 hover:border-zinc-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {downloadingTgId === track.id ? (
+                            <Loader2 className="animate-spin text-sky-500 shrink-0" size={14} />
+                          ) : (
+                            <Music className="text-zinc-500 shrink-0" size={14} />
+                          )}
+                          <div className="min-w-0">
+                            <p className="truncate font-bold">
+                              {track.artist && track.title ? `${track.artist} - ${track.title}` : track.file_name}
+                            </p>
+                            <p className="text-[9px] text-zinc-450 dark:text-zinc-500 font-mono mt-0.5">
+                              {track.file_size ? `${(track.file_size / (1024 * 1024)).toFixed(1)} MB` : ''}
+                              {track.duration ? ` • ${Math.floor(track.duration / 60)}:${(track.duration % 60).toString().padStart(2, '0')}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {downloadingTgId !== track.id && (
+                            <button
+                              onClick={(e) => handleDeleteTgTrack(e, track.id)}
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/5 transition-colors"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -28,33 +28,22 @@ class LRCLibProvider implements LyricsProvider {
   name = 'lrclib';
 
   async search(query: string): Promise<LyricsProviderResult[]> {
-    const isDev = !!(import.meta as any).env?.DEV;
-    const baseUrl = isDev ? '/api/lrclib/api' : 'https://lrclib.net/api';
-    const url = `${baseUrl}/search?q=${encodeURIComponent(query)}`;
-    
-    let response: Response;
     try {
-      // Сначала пробуем основной URL (прямой или через Vite proxy)
-      response = await fetchWithTimeout(url, 45000);
-      if (!response.ok) {
-        throw new Error(`Direct/Proxy LRCLIB HTTP error: ${response.status}`);
-      }
-    } catch (err) {
-      console.warn('Primary search request failed, attempting backup CORS proxy...', err);
-      try {
-        const targetUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`;
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-        response = await fetchWithTimeout(proxyUrl, 45000);
-        if (!response.ok) {
-          throw new Error(`Backup Proxy LRCLIB HTTP error: ${response.status}`);
-        }
-      } catch (proxyErr) {
-        console.error('All search options failed:', proxyErr);
-        throw proxyErr;
-      }
-    }
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-telegram`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'search-lyrics',
+          query,
+        }),
+      });
 
-    try {
+      if (!response.ok) {
+        throw new Error(`Edge Function lyrics search HTTP error: ${response.status}`);
+      }
+
       const tracks: LrcLibTrack[] = await response.json();
       return tracks.map((track) => ({
         id: track.id,
@@ -67,7 +56,7 @@ class LRCLibProvider implements LyricsProvider {
         provider: 'lrclib',
       }));
     } catch (err) {
-      console.error('Failed to parse search JSON response:', err);
+      console.error('Lyrics search via Edge Function failed:', err);
       throw err;
     }
   }
@@ -78,57 +67,28 @@ class LRCLibProvider implements LyricsProvider {
     albumName?: string;
     duration?: number;
   }): Promise<LyricsProviderResult | null> {
-    const isDev = !!(import.meta as any).env?.DEV;
-    const baseUrl = isDev ? `${window.location.origin}/api/lrclib/api` : 'https://lrclib.net/api';
-    
-    const url = new URL(`${baseUrl}/get`);
-    url.searchParams.append('track_name', params.trackName);
-    url.searchParams.append('artist_name', params.artistName);
-    if (params.albumName) {
-      url.searchParams.append('album_name', params.albumName);
-    }
-    if (params.duration) {
-      url.searchParams.append('duration', Math.round(params.duration).toString());
-    }
-
-    const urlString = url.toString();
-    let response: Response;
     try {
-      response = await fetchWithTimeout(urlString, 30000);
-      if (response.status === 404) {
-        return null;
-      }
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-telegram`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'get-exact-lyrics',
+          trackName: params.trackName,
+          artistName: params.artistName,
+          albumName: params.albumName,
+          duration: params.duration ? Math.round(params.duration) : undefined,
+        }),
+      });
+
       if (!response.ok) {
-        throw new Error(`Direct/Proxy LRCLIB exact match HTTP error: ${response.status}`);
+        throw new Error(`Edge Function lyrics getExact HTTP error: ${response.status}`);
       }
-    } catch (err) {
-      console.warn('Primary exact match request failed, attempting backup CORS proxy...', err);
-      try {
-        const targetUrl = new URL('https://lrclib.net/api/get');
-        targetUrl.searchParams.append('track_name', params.trackName);
-        targetUrl.searchParams.append('artist_name', params.artistName);
-        if (params.albumName) {
-          targetUrl.searchParams.append('album_name', params.albumName);
-        }
-        if (params.duration) {
-          targetUrl.searchParams.append('duration', Math.round(params.duration).toString());
-        }
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl.toString())}`;
-        response = await fetchWithTimeout(proxyUrl, 30000);
-        if (response.status === 404) {
-          return null;
-        }
-        if (!response.ok) {
-          throw new Error(`Backup Proxy LRCLIB exact match HTTP error: ${response.status}`);
-        }
-      } catch (proxyErr) {
-        console.error('All exact match options failed:', proxyErr);
-        return null;
-      }
-    }
 
-    try {
-      const track: LrcLibTrack = await response.json();
+      const track: LrcLibTrack | null = await response.json();
+      if (!track) return null;
+
       return {
         id: track.id,
         trackName: track.trackName,
@@ -140,7 +100,7 @@ class LRCLibProvider implements LyricsProvider {
         provider: 'lrclib',
       };
     } catch (err) {
-      console.error('Failed to parse exact match JSON response:', err);
+      console.error('Lyrics getExact via Edge Function failed:', err);
       return null;
     }
   }
