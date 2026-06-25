@@ -164,12 +164,9 @@ Deno.serve(async (req) => {
             .single();
 
           if (sessionError || !sessionData) {
-            await sendTelegramMessage(
-              chatId,
-              '⚠️ Ошибка: Сессия авторизации не найдена на сайте или истекла. Пожалуйста, попробуйте нажать кнопку входа заново.',
-              botToken
-            );
-            return new Response('Session not found', { status: 200 });
+            // Если сессия не найдена, возможно она уже удалена/авторизована.
+            // Чтобы избежать спама при повторных запросах Telegram, просто возвращаем 200 OK.
+            return new Response('Session already processed or missing', { status: 200 });
           }
 
           const email = `${fromUser.id}@telegram.lrcmaker`;
@@ -235,17 +232,17 @@ Deno.serve(async (req) => {
             return new Response('Session update failed', { status: 200 });
           }
 
-          // Отправляем успешный статус пользователю в Telegram
+          // Отправляем успешный статус пользователю в Telegram со ссылкой на сайт
           await sendTelegramMessage(
             chatId,
-            `🎉 Авторизация успешна!\n\nИмя: ${username}\nID: ${fromUser.id}\n\nВозвращайтесь на вкладку браузера, вход выполнен автоматически.`,
+            `🎉 Авторизация успешна!\n\nИмя: ${username}\nID: ${fromUser.id}\n\nВозвращайтесь на вкладку браузера или перейдите по ссылке:\nhttps://karaoke-mv-pv1-0.vercel.app`,
             botToken
           );
         }
       } else {
         await sendTelegramMessage(
           chatId,
-          '👋 Привет! Этот бот используется для быстрого входа в один клик в Karaoke LRC Maker.\n\nПерейдите на сайт и нажмите «Войти через Telegram-приложение», чтобы использовать эту функцию.',
+          '👋 Привет! Этот бот используется для быстрого входа в один клик в Karaoke LRC Maker (https://karaoke-mv-pv1-0.vercel.app).\n\nПерейдите на сайт и нажмите «Войти через Telegram-приложение», чтобы авторизоваться.',
           botToken
         );
       }
