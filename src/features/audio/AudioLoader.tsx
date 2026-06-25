@@ -43,6 +43,7 @@ export const AudioLoader: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [lyricsSearchStatus, setLyricsSearchStatus] = useState<'idle' | 'searching' | 'found' | 'not_found'>('idle');
 
   const dict = localization[language];
 
@@ -101,6 +102,7 @@ export const AudioLoader: React.FC = () => {
 
       if (title && artist) {
         setAutoSearchedFile(audioFileName);
+        setLyricsSearchStatus('searching');
         getExactAllLyrics({
           trackName: title,
           artistName: artist,
@@ -111,24 +113,27 @@ export const AudioLoader: React.FC = () => {
               const parsed = parseLRC(result.syncedLyrics);
               setLines(parsed);
               setRawText(result.syncedLyrics);
-              alert(language === 'ru' 
-                ? `Найден синхронизированный текст для "${result.artistName} - ${result.trackName}" и импортирован автоматически!` 
-                : `Found synced lyrics for "${result.artistName} - ${result.trackName}" and imported them automatically!`
-              );
+              setLyricsSearchStatus('found');
             } else if (result.plainLyrics) {
               const parsed = parseLRC(result.plainLyrics);
               setLines(parsed);
               setRawText(result.plainLyrics);
-              alert(language === 'ru'
-                ? `Найден текст для "${result.artistName} - ${result.trackName}" и импортирован автоматически. Требуется ручная синхронизация.`
-                : `Found plain lyrics for "${result.artistName} - ${result.trackName}" and imported them automatically. Sync required.`
-              );
+              setLyricsSearchStatus('found');
+            } else {
+              setLyricsSearchStatus('not_found');
             }
+          } else {
+            setLyricsSearchStatus('not_found');
           }
         }).catch((err) => {
           console.warn('Auto-search exact lyrics failed:', err);
+          setLyricsSearchStatus('not_found');
         });
+      } else {
+        setLyricsSearchStatus('not_found');
       }
+    } else if (!audioUrl) {
+      setLyricsSearchStatus('idle');
     }
   }, [audioUrl, audioFileName, trackMetadata, rawText, language, setLines, setRawText, autoSearchedFile]);
 
@@ -405,6 +410,14 @@ export const AudioLoader: React.FC = () => {
                 <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-normal mb-3">
                   {dict.audioTgImportDesc}
                 </p>
+                <div className="text-[9px] text-amber-500 dark:text-amber-400/80 leading-normal font-semibold mb-3 border border-amber-500/20 bg-amber-500/5 rounded-lg p-2.5 flex items-start gap-1.5">
+                  <span className="shrink-0 mt-0.5">⚠️</span>
+                  <span>
+                    {language === 'ru'
+                      ? 'Внимание: для импорта из Telegram в РФ может потребоваться активный VPN (из-за блокировок сетевых запросов к серверам Supabase провайдерами).'
+                      : 'Note: Telegram import in Russia may require an active VPN (due to connection blockades to Supabase servers by ISPs).'}
+                  </span>
+                </div>
 
                 {loadingTg ? (
                   <div className="flex items-center justify-center py-6 text-zinc-500">
@@ -517,6 +530,22 @@ export const AudioLoader: React.FC = () => {
                 <h4 className="text-sm font-bold truncate mt-0.5" title={audioFileName || ''}>
                   {audioFileName}
                 </h4>
+                {lyricsSearchStatus === 'searching' && (
+                  <p className="text-[10px] text-violet-500 dark:text-violet-400 font-semibold flex items-center gap-1 mt-1 animate-pulse">
+                    <Loader2 size={10} className="animate-spin" />
+                    <span>{language === 'ru' ? 'Ищем текст песни в LRCLIB...' : 'Searching lyrics in LRCLIB...'}</span>
+                  </p>
+                )}
+                {lyricsSearchStatus === 'found' && (
+                  <p className="text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-1">
+                    <span>{language === 'ru' ? '✅ Текст песни импортирован автоматически!' : '✅ Lyrics imported automatically!'}</span>
+                  </p>
+                )}
+                {lyricsSearchStatus === 'not_found' && (
+                  <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-semibold flex items-center gap-1 mt-1">
+                    <span>{language === 'ru' ? '⚠️ Текст песни в LRCLIB не найден' : '⚠️ Lyrics not found in LRCLIB'}</span>
+                  </p>
+                )}
               </div>
             </div>
 
