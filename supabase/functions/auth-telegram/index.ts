@@ -98,6 +98,25 @@ async function generateDeterministicPassword(telegramId: string, botToken: strin
     .join('');
 }
 
+async function sendTelegramMessage(chatId: number, text: string, botToken: string) {
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+      }),
+    });
+    if (!response.ok) {
+      console.error('Failed to send Telegram message:', await response.text());
+    }
+  } catch (err) {
+    console.error('Error sending Telegram message:', err);
+  }
+}
+
 Deno.serve(async (req) => {
   // CORS preflight
   if (req.method === 'OPTIONS') {
@@ -105,9 +124,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { authData } = await req.json();
-    if (!authData || !authData.id) {
-      return new Response(JSON.stringify({ error: 'Missing authData' }), {
+    let body;
+    try {
+      body = await req.json();
+    } catch (e) {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -121,7 +142,127 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 1. Проверяем валидность подписи Telegram
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+    // 1. Проверка на входящий вебхук Telegram
+    if (body && body.message && body.message.text) {
+      const text = body.message.text;
+      const chatId = body.message.chat.id;
+
+      if (text.startsWith('/start auth_')) {
+        const sessionId = text.replace('/start auth_', '').trim();
+        const fromUser = body.message.from;
+
+        if (fromUser && sessionId) {
+          // Ищем сессию в БД
+          const { data: sessionData, error: sessionError } = await supabaseAdmin
+            .from('telegram_auth_sessions')
+            .select('*')
+            .eq('id', sessionId)
+            .single();
+
+          if (sessionError || !sessionData) {
+            await sendTelegramMessage(
+              chatId,
+              '⚠️ Ошибка: Сессия авторизации не найдена на сайте или истекла. Пожалуйста, попробуйте нажать кнопку входа заново.',
+              botToken
+            );
+            return new Response('Session not found', { status: 200 });
+          }
+
+          const email = `${fromUser.id}@telegram.lrcmaker`;
+          const password = await generateDeterministicPassword(fromUser.id.toString(), botToken);
+          const username = fromUser.username || fromUser.first_name || `tg_${fromUser.id}`;
+          const avatarUrl = null;
+
+          let userId: string;
+
+          // Создаем или получаем пользователя в Supabase Auth
+          const { data: createData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            email_confirm: true,
+            password: password,
+            user_metadata: { telegram_id: fromUser.id, username }
+          });
+
+          if (createError) {
+            // Если пользователь уже существует
+            const { data: existingProfiles } = await supabaseAdmin
+              .from('profiles')
+              .select('id')
+              .eq('telegram_id', fromUser.id);
+
+            if (existingProfiles && existingProfiles.length > 0) {
+              userId = existingProfiles[0].id;
+            } else {
+              const { data: userList } = await supabaseAdmin.auth.admin.listUsers();
+              const foundUser = userList?.users?.find((u) => u.email === email);
+              if (foundUser) {
+                userId = foundUser.id;
+              } else {
+                await sendTelegramMessage(chatId, '⚠️ Ошибка авторизации: не удалось связать аккаунт.', botToken);
+                return new Response('User auth linking failed', { status: 200 });
+              }
+            }
+          } else {
+            userId = createData.user.id;
+          }
+
+          // Синхронизируем профиль
+          await supabaseAdmin.from('profiles').upsert({
+            id: userId,
+            username: username,
+            avatar_url: avatarUrl,
+            telegram_id: Number(fromUser.id),
+            updated_at: new Date().toISOString(),
+          });
+
+          // Обновляем сессию для фронтенда
+          const { error: updateError } = await supabaseAdmin
+            .from('telegram_auth_sessions')
+            .update({
+              status: 'authorized',
+              telegram_id: fromUser.id,
+              auth_email: email,
+              auth_password: password,
+            })
+            .eq('id', sessionId);
+
+          if (updateError) {
+            await sendTelegramMessage(chatId, '⚠️ Ошибка обновления сессии на сервере.', botToken);
+            return new Response('Session update failed', { status: 200 });
+          }
+
+          // Отправляем успешный статус пользователю в Telegram
+          await sendTelegramMessage(
+            chatId,
+            `🎉 Авторизация успешна!\n\nИмя: ${username}\nID: ${fromUser.id}\n\nВозвращайтесь на вкладку браузера, вход выполнен автоматически.`,
+            botToken
+          );
+        }
+      } else {
+        await sendTelegramMessage(
+          chatId,
+          '👋 Привет! Этот бот используется для быстрого входа в один клик в Karaoke LRC Maker.\n\nПерейдите на сайт и нажмите «Войти через Telegram-приложение», чтобы использовать эту функцию.',
+          botToken
+        );
+      }
+
+      return new Response('Webhook processed successfully', { status: 200 });
+    }
+
+    // 2. Стандартный флоу авторизации (Виджет или WebApp)
+    const { authData } = body;
+    if (!authData || !authData.id) {
+      return new Response(JSON.stringify({ error: 'Missing authData' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Проверяем валидность подписи Telegram
     const isValid = await verifyTelegramHash(authData, botToken);
     if (!isValid) {
       return new Response(JSON.stringify({ error: 'Invalid Telegram signature' }), {
@@ -130,11 +271,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Инициализируем Supabase Admin клиент
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
     const email = `${authData.id}@telegram.lrcmaker`;
     const password = await generateDeterministicPassword(authData.id.toString(), botToken);
     const username = authData.username || authData.first_name || `tg_${authData.id}`;
@@ -142,7 +278,7 @@ Deno.serve(async (req) => {
 
     let userId: string;
 
-    // 3. Пытаемся создать пользователя в Supabase Auth
+    // Пытаемся создать пользователя в Supabase Auth
     const { data: createData, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       email_confirm: true,
@@ -151,35 +287,28 @@ Deno.serve(async (req) => {
     });
 
     if (createError) {
-      // Если пользователь уже существует, ищем его профиль или ID
-      // Сообщение об ошибке обычно содержит "Email already in use" или аналогичные коды
-      const { data: existingProfiles, error: selectError } = await supabaseAdmin
+      const { data: existingProfiles } = await supabaseAdmin
         .from('profiles')
         .select('id')
         .eq('telegram_id', authData.id);
 
-      if (selectError || !existingProfiles || existingProfiles.length === 0) {
-        // Если профиля нет, нам нужно найти пользователя в auth.users.
-        // Поскольку в Supabase REST API нет прямого доступа к auth.users,
-        // мы можем попытаться выполнить сброс пароля (пользователь все равно существует)
-        // или пересоздать/найти его. В нормальном сценарии профиль создается при первом входе.
-        // Мы можем перестраховаться и сделать запрос к списку пользователей:
-        const { data: userList, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+      if (existingProfiles && existingProfiles.length > 0) {
+        userId = existingProfiles[0].id;
+      } else {
+        const { data: userList } = await supabaseAdmin.auth.admin.listUsers();
         const foundUser = userList?.users?.find(u => u.email === email);
         if (foundUser) {
           userId = foundUser.id;
         } else {
           throw new Error('User already exists in auth but could not find user ID');
         }
-      } else {
-        userId = existingProfiles[0].id;
       }
     } else {
       userId = createData.user.id;
     }
 
-    // 4. Синхронизируем/создаем профиль пользователя в public.profiles
-    const { error: upsertError } = await supabaseAdmin
+    // Синхронизируем/создаем профиль пользователя в public.profiles
+    await supabaseAdmin
       .from('profiles')
       .upsert({
         id: userId,
@@ -189,12 +318,7 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       });
 
-    if (upsertError) {
-      console.error('Failed to upsert profile:', upsertError);
-      // Не бросаем ошибку, так как пользователь в auth все равно был успешно создан/найден
-    }
-
-    // 5. Возвращаем email и пароль клиенту для безопасного входа
+    // Возвращаем email и пароль клиенту для безопасного входа
     return new Response(JSON.stringify({ email, password }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

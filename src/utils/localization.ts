@@ -141,6 +141,10 @@ export const localization = {
     adminStatusFailed: 'Ошибка',
     adminSuperAdminAlert: 'Это супер-администратор. Смена роли или удаление заблокированы на уровне БД.',
     adminClose: 'Закрыть',
+    authTelegramAppLink: 'Войти в 1 клик через Telegram',
+    authWaitingForTelegram: 'Ожидание подтверждения в Telegram...',
+    authSessionExpired: 'Сессия авторизации истекла. Пожалуйста, попробуйте снова.',
+    authSessionError: 'Произошла ошибка при авторизации.',
   },
   en: {
     appName: 'Karaoke LRC Maker',
@@ -284,5 +288,9 @@ export const localization = {
     adminStatusFailed: 'Failed',
     adminSuperAdminAlert: 'This is a super-administrator. Role modifications or deletion are blocked by the database.',
     adminClose: 'Close',
+    authTelegramAppLink: '1-Click Login via Telegram',
+    authWaitingForTelegram: 'Waiting for confirmation in Telegram...',
+    authSessionExpired: 'Authorization session expired. Please try again.',
+    authSessionError: 'An error occurred during authorization.',
   }
 };

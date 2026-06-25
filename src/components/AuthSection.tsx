@@ -35,6 +35,8 @@ export const AuthSection: React.FC = () => {
   } = useKaraokeStore();
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [waitingForTelegram, setWaitingForTelegram] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const dict = localization[language];
 
   // Проверка, запущены ли мы внутри Telegram WebApp
@@ -145,6 +147,116 @@ export const AuthSection: React.FC = () => {
     } catch (err: any) {
       console.error('WebApp Auth Error:', err);
       setErrorMsg(err.message || 'Ошибка авторизации Telegram WebApp');
+    }
+  };
+
+  const handleTelegramAppLinkAuth = async () => {
+    setErrorMsg(null);
+    setWaitingForTelegram(true);
+    
+    const newSessionId = crypto.randomUUID();
+    setSessionId(newSessionId);
+
+    try {
+      const { error } = await supabase
+        .from('telegram_auth_sessions')
+        .insert({ id: newSessionId, status: 'pending' });
+
+      if (error) throw error;
+
+      const botName = 'lrckaraoke_bot';
+      const tgLink = `https://t.me/${botName}?start=auth_${newSessionId}`;
+      window.open(tgLink, '_blank');
+
+      let isSubscribed = true;
+
+      const channel = supabase
+        .channel(`auth_session_${newSessionId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'telegram_auth_sessions',
+            filter: `id=eq.${newSessionId}`,
+          },
+          async (payload: any) => {
+            if (!isSubscribed) return;
+            const updated = payload.new;
+            if (updated && updated.status === 'authorized') {
+              isSubscribed = false;
+              clearInterval(pollingInterval);
+              channel.unsubscribe();
+              await loginWithSessionCredentials(updated.auth_email, updated.auth_password, newSessionId);
+            }
+          }
+        )
+        .subscribe();
+
+      const pollingInterval = setInterval(async () => {
+        if (!isSubscribed) return;
+        
+        try {
+          const { data, error: fetchError } = await supabase
+            .from('telegram_auth_sessions')
+            .select('*')
+            .eq('id', newSessionId)
+            .single();
+
+          if (fetchError) {
+            console.error('Error polling auth session:', fetchError);
+            return;
+          }
+
+          if (data && data.status === 'authorized') {
+            isSubscribed = false;
+            clearInterval(pollingInterval);
+            channel.unsubscribe();
+            await loginWithSessionCredentials(data.auth_email, data.auth_password, newSessionId);
+          }
+        } catch (err) {
+          console.error('Polling error:', err);
+        }
+      }, 2000);
+
+      setTimeout(async () => {
+        if (isSubscribed) {
+          isSubscribed = false;
+          clearInterval(pollingInterval);
+          channel.unsubscribe();
+          setWaitingForTelegram(false);
+          setErrorMsg(dict.authSessionExpired);
+          await supabase.from('telegram_auth_sessions').delete().eq('id', newSessionId);
+        }
+      }, 300000);
+
+    } catch (err: any) {
+      console.error('Failed to initiate App Telegram Auth:', err);
+      setErrorMsg(err.message || dict.authSessionError);
+      setWaitingForTelegram(false);
+    }
+  };
+
+  const loginWithSessionCredentials = async (email: string, pass: string, sessId: string) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password: pass,
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        setUser(data.user);
+        useKaraokeStore.getState().syncProjects();
+      }
+    } catch (err: any) {
+      console.error('Sign in using session credentials failed:', err);
+      setErrorMsg(err.message || dict.authSessionError);
+    } finally {
+      setWaitingForTelegram(false);
+      setSessionId(null);
+      await supabase.from('telegram_auth_sessions').delete().eq('id', sessId);
     }
   };
 
@@ -291,8 +403,24 @@ export const AuthSection: React.FC = () => {
                 {language === 'ru' ? 'Войти как WebApp' : 'Login as WebApp'}
               </button>
             ) : (
-              /* Иначе рендерим контейнер виджета Telegram */
-              <div id="telegram-widget-container" className="flex justify-center min-h-[36px]" />
+              <div className="flex flex-col gap-2.5 w-full">
+                {/* Вход через Telegram-приложение (Deep Link) */}
+                <button
+                  onClick={handleTelegramAppLinkAuth}
+                  disabled={waitingForTelegram}
+                  className="w-full py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 disabled:bg-sky-500/50 text-white font-bold text-[11px] flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 shadow-md shadow-sky-500/15 cursor-pointer"
+                >
+                  {waitingForTelegram ? (
+                    <RefreshCw size={13} className="animate-spin" />
+                  ) : (
+                    <Key size={13} />
+                  )}
+                  {waitingForTelegram ? dict.authWaitingForTelegram : dict.authTelegramAppLink}
+                </button>
+
+                {/* Иначе рендерим контейнер виджета Telegram */}
+                <div id="telegram-widget-container" className="flex justify-center min-h-[36px]" />
+              </div>
             )}
 
             {/* Кнопка Mock-входа для локальной отладки */}
