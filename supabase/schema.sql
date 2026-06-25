@@ -254,6 +254,22 @@ CREATE POLICY "Allow all read to settings" ON public.telegram_bot_settings FOR S
 DROP POLICY IF EXISTS "Allow admin modify settings" ON public.telegram_bot_settings;
 CREATE POLICY "Allow admin modify settings" ON public.telegram_bot_settings FOR ALL USING (public.is_admin());
 
+-- 9. ТАБЛИЦА ДЛЯ ОТЛАДКИ ВЕБХУКОВ ТЕЛЕГРАМА
+CREATE TABLE IF NOT EXISTS public.telegram_bot_debug_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    payload JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE public.telegram_bot_debug_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all read to debug logs" ON public.telegram_bot_debug_logs;
+CREATE POLICY "Allow all read to debug logs" ON public.telegram_bot_debug_logs FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow all insert to debug logs" ON public.telegram_bot_debug_logs;
+CREATE POLICY "Allow all insert to debug logs" ON public.telegram_bot_debug_logs FOR INSERT WITH CHECK (true);
+
+
 
 
 

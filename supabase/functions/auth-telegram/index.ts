@@ -154,6 +154,20 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Логируем запрос в таблицу для отладки
+    try {
+      await supabaseAdmin.from('telegram_bot_debug_logs').insert({
+        payload: {
+          method: req.method,
+          url: req.url,
+          headers: Object.fromEntries(req.headers.entries()),
+          body: body,
+        }
+      });
+    } catch (e) {
+      console.error('Failed to write debug log:', e);
+    }
+
     // 1. Настройка канала-хранилища (пересланное сообщение из канала)
     const message = body?.message;
     let channelId = null;
