@@ -239,5 +239,21 @@ CREATE POLICY "Users can delete their own shared tracks" ON public.telegram_audi
         )
     );
 
+-- 8. ТАБЛИЦА НАСТРОЕК БОТА (Включая ID канала-хранилища)
+CREATE TABLE IF NOT EXISTS public.telegram_bot_settings (
+    key VARCHAR(50) PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Включение RLS
+ALTER TABLE public.telegram_bot_settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all read to settings" ON public.telegram_bot_settings;
+CREATE POLICY "Allow all read to settings" ON public.telegram_bot_settings FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow admin modify settings" ON public.telegram_bot_settings;
+CREATE POLICY "Allow admin modify settings" ON public.telegram_bot_settings FOR ALL USING (public.is_admin());
+
+
 
 

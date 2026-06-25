@@ -124,15 +124,23 @@ Deno.serve(async (req) => {
   }
 
   try {
-    let body;
-    try {
-      body = await req.json();
-    } catch (e) {
-      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    const urlObj = new URL(req.url);
+    const urlAction = urlObj.searchParams.get('action');
+
+    let body = {};
+    const contentType = req.headers.get('content-type') || '';
+    if (req.method === 'POST' && contentType.includes('application/json')) {
+      try {
+        body = await req.json();
+      } catch (e) {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
+
+    const action = body.action || urlAction;
 
     const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
     if (!botToken) {
@@ -146,10 +154,64 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // 1. Проверка на входящий вебхук Telegram (Аудио)
+    // 1. Настройка канала-хранилища (пересланное сообщение из канала)
+    const message = body?.message;
+    let channelId = null;
+    let channelTitle = null;
+
+    if (message) {
+      if (message.forward_from_chat && message.forward_from_chat.type === 'channel') {
+        channelId = message.forward_from_chat.id;
+        channelTitle = message.forward_from_chat.title;
+      } else if (message.forward_origin && message.forward_origin.type === 'channel') {
+        channelId = message.forward_origin.chat?.id;
+        channelTitle = message.forward_origin.chat?.title;
+      }
+    }
+
+    if (channelId) {
+      const fromUser = message.from;
+      const chatId = message.chat.id;
+
+      if (fromUser) {
+        // Проверяем роль пользователя (должен быть админом)
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('role')
+          .eq('telegram_id', fromUser.id)
+          .maybeSingle();
+
+        if (profile && profile.role === 'admin') {
+          const { error: upsertError } = await supabaseAdmin
+            .from('telegram_bot_settings')
+            .upsert({ key: 'storage_channel_id', value: channelId.toString() });
+
+          if (upsertError) {
+            console.error('Failed to save channel ID:', upsertError);
+            await sendTelegramMessage(chatId, '⚠️ Не удалось привязать канал-хранилище в БД.', botToken);
+          } else {
+            await sendTelegramMessage(
+              chatId,
+              `✅ Канал «${channelTitle || 'наш канал'}» (ID: ${channelId}) успешно зарегистрирован как хранилище аудио!\n\nВсе присылаемые треки будут автоматически пересылаться туда для кэширования.`,
+              botToken
+            );
+          }
+        } else {
+          await sendTelegramMessage(chatId, '⚠️ Изменять настройки бота могут только администраторы.', botToken);
+          return new Response('Unauthorized config attempt', { status: 200 });
+        }
+      }
+
+      if (!message.audio) {
+        return new Response('Channel configured', { status: 200 });
+      }
+    }
+
+    // 2. Проверка на входящий вебхук Telegram (Аудио)
     if (body && body.message && body.message.audio) {
       const audio = body.message.audio;
       const chatId = body.message.chat.id;
+      const messageId = body.message.message_id;
       const fromUser = body.message.from;
 
       if (fromUser) {
@@ -162,6 +224,43 @@ Deno.serve(async (req) => {
           return new Response('File size exceeds limit', { status: 200 });
         }
 
+        let finalFileId = audio.file_id;
+
+        // Ищем в БД, задан ли канал-хранилище
+        const { data: setting } = await supabaseAdmin
+          .from('telegram_bot_settings')
+          .select('value')
+          .eq('key', 'storage_channel_id')
+          .maybeSingle();
+
+        if (setting && setting.value) {
+          try {
+            // Пересылаем сообщение в канал-хранилище
+            const forwardUrl = `https://api.telegram.org/bot${botToken}/forwardMessage`;
+            const forwardRes = await fetch(forwardUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: setting.value,
+                from_chat_id: chatId,
+                message_id: messageId,
+              }),
+            });
+
+            if (forwardRes.ok) {
+              const forwardData = await forwardRes.json();
+              if (forwardData.ok && forwardData.result && forwardData.result.audio) {
+                // Извлекаем постоянный file_id, созданный в канале
+                finalFileId = forwardData.result.audio.file_id;
+              }
+            } else {
+              console.error('Failed to forward audio to channel:', await forwardRes.text());
+            }
+          } catch (err) {
+            console.error('Error forwarding audio to channel:', err);
+          }
+        }
+
         const fileName = audio.file_name || `${audio.title || 'track'}.mp3`;
         const artist = audio.performer || null;
         const title = audio.title || null;
@@ -170,7 +269,7 @@ Deno.serve(async (req) => {
 
         const { error: insertError } = await supabaseAdmin.from('telegram_audio_shares').insert({
           telegram_id: fromUser.id,
-          file_id: audio.file_id,
+          file_id: finalFileId,
           file_name: fileName,
           file_size: fileSize,
           duration: duration,
