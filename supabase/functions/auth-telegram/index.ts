@@ -174,31 +174,40 @@ Deno.serve(async (req) => {
       const chatId = message.chat.id;
 
       if (fromUser) {
-        // Проверяем роль пользователя (должен быть админом)
-        const { data: profile } = await supabaseAdmin
-          .from('profiles')
-          .select('role')
-          .eq('telegram_id', fromUser.id)
-          .maybeSingle();
+        try {
+          // Проверяем роль пользователя (должен быть админом)
+          const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .select('role')
+            .eq('telegram_id', fromUser.id)
+            .maybeSingle();
 
-        if (profile && profile.role === 'admin') {
-          const { error: upsertError } = await supabaseAdmin
-            .from('telegram_bot_settings')
-            .upsert({ key: 'storage_channel_id', value: channelId.toString() });
-
-          if (upsertError) {
-            console.error('Failed to save channel ID:', upsertError);
-            await sendTelegramMessage(chatId, '⚠️ Не удалось привязать канал-хранилище в БД.', botToken);
-          } else {
-            await sendTelegramMessage(
-              chatId,
-              `✅ Канал «${channelTitle || 'наш канал'}» (ID: ${channelId}) успешно зарегистрирован как хранилище аудио!\n\nВсе присылаемые треки будут автоматически пересылаться туда для кэширования.`,
-              botToken
-            );
+          if (profileError) {
+            console.error('Failed to query profiles:', profileError);
           }
-        } else {
-          await sendTelegramMessage(chatId, '⚠️ Изменять настройки бота могут только администраторы.', botToken);
-          return new Response('Unauthorized config attempt', { status: 200 });
+
+          if (profile && profile.role === 'admin') {
+            const { error: upsertError } = await supabaseAdmin
+              .from('telegram_bot_settings')
+              .upsert({ key: 'storage_channel_id', value: channelId.toString() });
+
+            if (upsertError) {
+              console.error('Failed to save channel ID:', upsertError);
+              await sendTelegramMessage(chatId, '⚠️ Не удалось привязать канал-хранилище в БД (убедитесь, что таблица настроек создана).', botToken);
+            } else {
+              await sendTelegramMessage(
+                chatId,
+                `✅ Канал «${channelTitle || 'наш канал'}» (ID: ${channelId}) успешно зарегистрирован как хранилище аудио!\n\nВсе присылаемые треки будут автоматически пересылаться туда для кэширования.`,
+                botToken
+              );
+            }
+          } else {
+            await sendTelegramMessage(chatId, '⚠️ Изменять настройки бота могут только администраторы.', botToken);
+            return new Response('Unauthorized config attempt', { status: 200 });
+          }
+        } catch (err) {
+          console.error('Exception during channel settings registration:', err);
+          await sendTelegramMessage(chatId, '⚠️ Произошла ошибка при обращении к БД при регистрации настроек.', botToken);
         }
       }
 
@@ -227,11 +236,21 @@ Deno.serve(async (req) => {
         let finalFileId = audio.file_id;
 
         // Ищем в БД, задан ли канал-хранилище
-        const { data: setting } = await supabaseAdmin
-          .from('telegram_bot_settings')
-          .select('value')
-          .eq('key', 'storage_channel_id')
-          .maybeSingle();
+        let setting = null;
+        try {
+          const { data, error } = await supabaseAdmin
+            .from('telegram_bot_settings')
+            .select('value')
+            .eq('key', 'storage_channel_id')
+            .maybeSingle();
+          if (!error) {
+            setting = data;
+          } else {
+            console.warn('Query settings error (table might not exist):', error);
+          }
+        } catch (err) {
+          console.error('Failed to query settings table:', err);
+        }
 
         if (setting && setting.value) {
           try {
@@ -567,8 +586,10 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
+    console.error('Global webhook handler error:', error);
+    // Для Telegram вебхуков возвращаем 200 OK, чтобы избежать блокировки очереди сообщений
     return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
