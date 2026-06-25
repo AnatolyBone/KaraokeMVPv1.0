@@ -201,3 +201,7 @@ CREATE POLICY "Allow select auth session by ID" ON public.telegram_auth_sessions
 DROP POLICY IF EXISTS "Allow delete auth session by ID" ON public.telegram_auth_sessions;
 CREATE POLICY "Allow delete auth session by ID" ON public.telegram_auth_sessions FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "Allow insert auth session" ON public.telegram_auth_sessions;
+CREATE POLICY "Allow insert auth session" ON public.telegram_auth_sessions FOR INSERT WITH CHECK (true);
+
+
