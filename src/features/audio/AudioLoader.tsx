@@ -132,7 +132,7 @@ export const AudioLoader: React.FC = () => {
     }
   }, [audioUrl, audioFileName, trackMetadata, rawText, language, setLines, setRawText, autoSearchedFile]);
 
-  const handleFile = async (file: File) => {
+  const handleFile = async (file: File, meta?: { artist: string | null; title: string | null }) => {
     const isAudioMime = file.type.startsWith('audio/');
     const hasAudioExtension = /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name);
     if (!isAudioMime && !hasAudioExtension) {
@@ -146,8 +146,22 @@ export const AudioLoader: React.FC = () => {
     try {
       await saveAudioToDB(file);
 
-      // Парсим ID3 метаданные
-      const metadata = await extractMetadataFromAudio(file);
+      // Используем переданные метаданные (например, из Telegram), если они есть, иначе парсим ID3
+      let metadata = {
+        artist: meta?.artist || null,
+        title: meta?.title || null,
+        album: null as string | null
+      };
+
+      if (!metadata.artist || !metadata.title) {
+        const parsedMeta = await extractMetadataFromAudio(file);
+        metadata = {
+          artist: metadata.artist || parsedMeta.artist,
+          title: metadata.title || parsedMeta.title,
+          album: parsedMeta.album
+        };
+      }
+
       setTrackMetadata(metadata);
       if (metadata.title) {
         setCurrentProjectTitle(metadata.artist ? `${metadata.artist} - ${metadata.title}` : metadata.title);
@@ -269,7 +283,7 @@ export const AudioLoader: React.FC = () => {
            : track.file_name.endsWith('.m4a') ? 'audio/x-m4a'
            : 'audio/mpeg');
       const file = new File([blob], track.file_name, { type: fileType });
-      await handleFile(file);
+      await handleFile(file, { artist: track.artist, title: track.title });
       setShowTgImport(false);
     } catch (err: any) {
       alert(`${dict.audioTgImportError}: ${err.message}`);
