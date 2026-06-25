@@ -5,7 +5,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.8';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
 
 // Хелпер для вычисления HMAC-SHA256 подписи данных Telegram
@@ -525,19 +525,50 @@ Deno.serve(async (req) => {
         const filePath = getFileData.result.file_path;
         const downloadUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
 
+        const startTime = Date.now();
         const audioRes = await fetch(downloadUrl);
         if (!audioRes.ok) {
           throw new Error(`Failed to download audio from Telegram: ${audioRes.status}`);
         }
 
-        const audioBlob = await audioRes.blob();
-        return new Response(audioBlob, {
+        const arrayBuffer = await audioRes.arrayBuffer();
+        const downloadDuration = (Date.now() - startTime) / 1000;
+
+        try {
+          await supabaseAdmin.from('telegram_bot_debug_logs').insert({
+            payload: {
+              event: 'download_telemetry',
+              file_id: fileId,
+              size: arrayBuffer.byteLength,
+              duration_seconds: downloadDuration,
+              success: true
+            }
+          });
+        } catch (e) {
+          console.error('Failed to log telemetry:', e);
+        }
+
+        // Принудительно задаем правильный MIME-тип аудио вместо generic application/octet-stream,
+        // чтобы предотвратить ложные блокировки DPI (ТСПУ) у провайдеров,
+        // а также добавляем Cache-Control: no-transform для исключения сжатия/модификации потока.
+        let contentType = 'audio/mpeg';
+        const lowerPath = filePath.toLowerCase();
+        if (lowerPath.endsWith('.wav')) {
+          contentType = 'audio/wav';
+        } else if (lowerPath.endsWith('.ogg')) {
+          contentType = 'audio/ogg';
+        } else if (lowerPath.endsWith('.m4a')) {
+          contentType = 'audio/x-m4a';
+        }
+
+        return new Response(arrayBuffer, {
           status: 200,
           headers: {
             ...corsHeaders,
-            'Content-Type': audioRes.headers.get('Content-Type') || 'audio/mpeg',
-            'Content-Length': audioRes.headers.get('Content-Length') || audioBlob.size.toString(),
+            'Content-Type': contentType,
+            'Content-Length': arrayBuffer.byteLength.toString(),
             'Content-Disposition': `attachment; filename="${filePath.split('/').pop() || 'track.mp3'}"`,
+            'Cache-Control': 'no-transform, no-cache, must-revalidate',
           },
         });
       } catch (err: any) {
