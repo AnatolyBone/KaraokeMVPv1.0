@@ -334,7 +334,7 @@ export const KaraokeCatalog: React.FC = () => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={language === 'ru' ? 'Поиск песни или артиста...' : 'Search song or artist...'}
-            className="w-full bg-zinc-900/60 border border-zinc-800 rounded-xl pl-9 pr-4 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/35 transition-all placeholder-zinc-500"
+            className="w-full bg-zinc-950/50 backdrop-blur-md border border-white/5 focus:border-violet-500/40 rounded-xl pl-9 pr-4 py-2.5 text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-violet-500/35 transition-all duration-300 placeholder-zinc-500 hover:border-white/10"
           />
         </div>
       </div>
@@ -364,10 +364,10 @@ export const KaraokeCatalog: React.FC = () => {
               <div
                 key={track.id}
                 onClick={() => handleSelectTrack(track)}
-                className={`group relative rounded-2xl p-4 border transition-all duration-300 flex flex-col justify-between cursor-pointer hover:-translate-y-1 shadow-sm hover:shadow-violet-500/5 ${
+                className={`group relative rounded-2xl p-4 border transition-all duration-300 flex flex-col justify-between cursor-pointer hover:-translate-y-1 hover:scale-[1.015] shadow-sm hover:shadow-violet-500/10 ${
                   theme === 'dark'
-                    ? 'bg-zinc-955/65 border-zinc-800/80 hover:border-zinc-700/80 hover:bg-zinc-950'
-                    : 'bg-white border-zinc-250 hover:border-zinc-350 hover:bg-zinc-50/50'
+                    ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 hover:border-violet-500/30'
+                    : 'bg-white border-zinc-200 hover:bg-zinc-50/50'
                 }`}
               >
                 <div className="flex gap-3">

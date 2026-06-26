@@ -24,8 +24,10 @@ export const SidePanel: React.FC = () => {
         <>
           {/* Statistics widget */}
           <div
-            className={`rounded-2xl p-5 border shadow-sm transition-all ${
-              theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+            className={`rounded-2xl p-5 border shadow-sm transition-all duration-300 ${
+              theme === 'dark' 
+                ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 hover:border-violet-500/20 text-zinc-100' 
+                : 'bg-white border-zinc-200 text-zinc-900'
             }`}
           >
             <div className="flex items-center gap-2 mb-4 border-b border-zinc-100 dark:border-zinc-900 pb-3">
@@ -79,8 +81,10 @@ export const SidePanel: React.FC = () => {
 
           {/* Keyboard Shortcuts widget */}
           <div
-            className={`rounded-2xl p-5 border shadow-sm transition-all ${
-              theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+            className={`rounded-2xl p-5 border shadow-sm transition-all duration-300 ${
+              theme === 'dark' 
+                ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 hover:border-violet-500/20 text-zinc-100' 
+                : 'bg-white border-zinc-200 text-zinc-900'
             }`}
           >
             <div className="flex items-center gap-2 mb-4 border-b border-zinc-100 dark:border-zinc-900 pb-3">
@@ -150,9 +154,9 @@ export const SidePanel: React.FC = () => {
 
       {/* Support and Feedback widget */}
       <div
-        className={`rounded-2xl p-5 border shadow-sm transition-all ${
+        className={`rounded-2xl p-5 border shadow-sm transition-all duration-300 ${
           theme === 'dark'
-            ? 'bg-zinc-950/80 border-zinc-800/80 text-zinc-100'
+            ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 hover:border-violet-500/20 text-zinc-100'
             : 'bg-white border-zinc-200 text-zinc-900'
         }`}
       >
@@ -171,7 +175,7 @@ export const SidePanel: React.FC = () => {
             href="https://t.me/anatoly_bone"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2.5 p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-sky-500/5 hover:border-sky-500/30 text-xs font-semibold transition-all hover:scale-[1.01] text-zinc-700 dark:text-zinc-300"
+            className="flex items-center gap-2.5 p-2.5 rounded-xl border border-zinc-200 dark:border-white/5 hover:bg-sky-500/5 hover:border-sky-500/20 dark:hover:border-sky-500/20 text-xs font-bold transition-all hover:scale-[1.015] active:scale-98 text-zinc-700 dark:text-zinc-300"
           >
             <MessageCircle size={14} className="text-sky-500" />
             <span>{dict.supportTelegram}</span>
@@ -182,7 +186,7 @@ export const SidePanel: React.FC = () => {
             href={donationUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2.5 p-2.5 rounded-xl bg-gradient-to-r from-pink-500/10 to-violet-500/10 border border-pink-500/20 hover:border-pink-500/40 text-xs font-bold text-pink-600 dark:text-pink-400 transition-all hover:scale-[1.01]"
+            className="flex items-center gap-2.5 p-2.5 rounded-xl bg-gradient-to-r from-pink-500/10 to-violet-500/10 dark:from-pink-500/15 dark:to-violet-500/15 border border-pink-500/20 hover:border-pink-500/40 hover:from-pink-500/20 hover:to-violet-500/20 text-xs font-extrabold text-pink-600 dark:text-pink-400 transition-all hover:scale-[1.015] active:scale-98 shadow-sm hover:shadow-pink-500/5 cursor-pointer"
           >
             <Heart size={14} className="text-pink-500" />
             <span>{dict.supportDonate}</span>

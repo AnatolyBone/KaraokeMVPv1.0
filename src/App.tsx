@@ -197,26 +197,37 @@ const App: React.FC = () => {
   const isReadyForTiming = lines.length > 0;
 
   return (
-    <div className={`min-h-screen flex flex-col font-sans antialiased transition-colors duration-355 ${
-      theme === 'dark' ? 'bg-zinc-900 text-zinc-100' : 'bg-zinc-50 text-zinc-900'
+    <div className={`min-h-screen flex flex-col font-sans antialiased relative overflow-hidden transition-colors duration-355 ${
+      theme === 'dark' ? 'bg-zinc-950 text-zinc-50' : 'bg-zinc-50 text-zinc-900'
     }`}>
+      {/* Ambient background glows for dark mode */}
+      {theme === 'dark' && (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-violet-600/10 blur-[120px] animate-blob" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-pink-600/10 blur-[120px] animate-blob animation-delay-2000" />
+          <div className="absolute top-[40%] left-[60%] w-[30%] h-[30%] rounded-full bg-fuchsia-600/5 blur-[100px] animate-blob animation-delay-4000" />
+        </div>
+      )}
+
       {/* Header */}
-      <header className={`sticky top-0 z-40 border-b backdrop-blur-md transition-colors ${
-        theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800/80' : 'bg-white/80 border-zinc-200/80'
+      <header className={`sticky top-0 z-40 border-b backdrop-blur-xl transition-all duration-300 relative ${
+        theme === 'dark' 
+          ? 'bg-zinc-950/70 border-white/5 shadow-lg shadow-black/25' 
+          : 'bg-white/70 border-zinc-200/80 shadow-sm shadow-zinc-100/50'
       }`}>
-        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="max-w-6xl mx-auto px-4 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
           
           {/* Top Row on Mobile: Logo and Mobile Controls */}
           <div className="flex items-center justify-between w-full md:w-auto">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md shadow-violet-500/20 shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-2xl bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-500 text-white shadow-lg shadow-violet-500/20 shrink-0 hover:rotate-6 transition-transform duration-300">
                 <Sparkles size={20} />
               </div>
               <div className="min-w-0">
                 <h1 className="text-base font-extrabold tracking-tight sm:text-lg truncate">
-                  Karaoke <span className="text-violet-500 dark:text-violet-400">LRC Maker</span>
+                  Karaoke <span className="bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">LRC Maker</span>
                 </h1>
-                <span className="text-[9.5px] text-zinc-400 dark:text-zinc-500 font-bold tracking-wider uppercase hidden xs:inline sm:block truncate">
+                <span className="text-[9px] text-zinc-500 dark:text-zinc-400 font-bold tracking-wider uppercase hidden xs:inline sm:block truncate">
                   {dict.appName}
                 </span>
               </div>
@@ -272,13 +283,13 @@ const App: React.FC = () => {
 
           {/* Navigation Step Tabs (Desktop Only) */}
           {appMode === 'editor' && (
-            <nav id="editor-step-tabs" className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 shrink-0">
+            <nav id="editor-step-tabs" className="hidden md:flex items-center gap-1 p-1 rounded-xl bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 backdrop-blur-md shrink-0">
               <button
                 onClick={() => setStep('input')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-300 ${
                   step === 'input'
-                    ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-100'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-400 shadow-md shadow-violet-500/5'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
               >
                 <Type size={14} />
@@ -293,10 +304,10 @@ const App: React.FC = () => {
                   }
                   setStep('timing');
                 }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-300 ${
                   step === 'timing'
-                    ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-100'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-400 shadow-md shadow-violet-500/5'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
               >
                 <Clock size={14} />
@@ -311,10 +322,10 @@ const App: React.FC = () => {
                   }
                   setStep('edit');
                 }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-300 ${
                   step === 'edit'
-                    ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-100'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-400 shadow-md shadow-violet-500/5'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
               >
                 <Edit3 size={14} />
@@ -324,14 +335,14 @@ const App: React.FC = () => {
           )}
 
           {/* Bottom Row on Mobile (Desktop Right Column): Switchers & Desktop-only Controls */}
-          <div className="flex items-center justify-between md:justify-end gap-2 w-full md:w-auto mt-0.5 md:mt-0">
+          <div className="flex items-center justify-between md:justify-end gap-3 w-full md:w-auto mt-0.5 md:mt-0">
             {/* Mode Switcher */}
-            <div id="app-mode-switcher" className="flex-1 md:flex-none flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl">
+            <div id="app-mode-switcher" className="flex-1 md:flex-none flex items-center gap-1 bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 p-1 rounded-xl backdrop-blur-md">
               <button
                 onClick={() => setAppMode('karaoke')}
-                className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                className={`flex-1 md:flex-none px-4 py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
                   appMode === 'karaoke'
-                    ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-md shadow-violet-500/5'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                 }`}
                 title={dict.appModeKaraoke}
@@ -340,9 +351,9 @@ const App: React.FC = () => {
               </button>
               <button
                 onClick={() => setAppMode('editor')}
-                className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                className={`flex-1 md:flex-none px-4 py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
                   appMode === 'editor'
-                    ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-md shadow-violet-500/5'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                 }`}
                 title={dict.appModeEditor}
@@ -352,23 +363,23 @@ const App: React.FC = () => {
             </div>
 
             {/* Language Switcher */}
-            <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl shrink-0">
+            <div className="flex items-center gap-1 bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 p-1 rounded-xl shrink-0 backdrop-blur-md">
               <button
                 onClick={() => setLanguage('ru')}
-                className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-300 cursor-pointer ${
                   language === 'ru'
-                    ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
-                    : 'text-zinc-450 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-sm'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                 }`}
               >
                 RU
               </button>
               <button
                 onClick={() => setLanguage('en')}
-                className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-300 cursor-pointer ${
                   language === 'en'
-                    ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
-                    : 'text-zinc-450 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-sm'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                 }`}
               >
                 EN

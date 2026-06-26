@@ -289,8 +289,8 @@ export const ExportPanel: React.FC = () => {
               value={currentProjectTitle || getDefaultProjectTitle(audioFileName, lines, language)}
               onChange={(e) => setCurrentProjectTitle(e.target.value)}
               placeholder={dict.exportFilenamePlaceholder || 'Введите название файла...'}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
-                theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+              className={`w-full px-3.5 py-2.5 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all duration-300 ${
+                theme === 'dark' ? 'bg-zinc-950/50 backdrop-blur-md border-white/5 text-zinc-100 hover:border-white/10 focus:border-violet-500/40' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
               }`}
             />
           </div>
@@ -306,17 +306,17 @@ export const ExportPanel: React.FC = () => {
             readOnly
             value={previewContent}
             rows={8}
-            className={`w-full p-4 rounded-xl font-mono text-xs border resize-none focus:outline-none transition-all ${
+            className={`w-full p-4 rounded-xl font-mono text-xs border resize-none focus:outline-none transition-all duration-300 ${
               theme === 'dark'
-                ? 'bg-zinc-900/60 border-zinc-800 text-zinc-300'
-                : 'bg-zinc-50 border-zinc-200 text-zinc-800'
+                ? 'bg-zinc-950/30 backdrop-blur-md border-white/5 text-zinc-300'
+                : 'bg-zinc-55 border-zinc-200 text-zinc-800'
             }`}
           />
 
           {/* Cloud Publishing Card */}
-          <div className={`mt-6 rounded-2xl border p-5 transition-all ${
+          <div className={`mt-6 rounded-2xl border p-5 transition-all duration-300 ${
             theme === 'dark'
-              ? 'bg-zinc-900/40 border-zinc-800/80 text-zinc-150'
+              ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 text-zinc-150 hover:border-violet-500/20 shadow-xl shadow-black/10'
               : 'bg-zinc-50 border-zinc-200 text-zinc-900'
           }`}>
             <div className="flex items-center gap-2 mb-3">
@@ -354,8 +354,8 @@ export const ExportPanel: React.FC = () => {
                       value={artist}
                       onChange={(e) => setArtist(e.target.value)}
                       placeholder={language === 'ru' ? 'Исполнитель...' : 'Artist name...'}
-                      className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
-                        theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                      className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all duration-300 ${
+                        theme === 'dark' ? 'bg-zinc-950/50 backdrop-blur-md border-white/5 text-zinc-100 hover:border-white/10 focus:border-violet-500/40' : 'bg-white border-zinc-200 text-zinc-900'
                       }`}
                     />
                   </div>
@@ -368,8 +368,8 @@ export const ExportPanel: React.FC = () => {
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder={language === 'ru' ? 'Название...' : 'Track title...'}
-                      className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
-                        theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                      className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all duration-300 ${
+                        theme === 'dark' ? 'bg-zinc-950/50 backdrop-blur-md border-white/5 text-zinc-100 hover:border-white/10 focus:border-violet-500/40' : 'bg-white border-zinc-200 text-zinc-900'
                       }`}
                     />
                   </div>
@@ -382,15 +382,15 @@ export const ExportPanel: React.FC = () => {
                       value={album}
                       onChange={(e) => setAlbum(e.target.value)}
                       placeholder={language === 'ru' ? 'Альбом...' : 'Album...'}
-                      className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
-                        theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                      className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all duration-300 ${
+                        theme === 'dark' ? 'bg-zinc-950/50 backdrop-blur-md border-white/5 text-zinc-100 hover:border-white/10 focus:border-violet-500/40' : 'bg-white border-zinc-200 text-zinc-900'
                       }`}
                     />
                   </div>
                 </div>
 
                 {/* Toggles */}
-                <div className="flex flex-col gap-2.5 bg-zinc-100/50 dark:bg-zinc-950/40 p-3 rounded-xl border border-zinc-200/40 dark:border-zinc-850/60">
+                <div className="flex flex-col gap-2.5 bg-zinc-100/50 dark:bg-zinc-950/20 p-3 rounded-xl border border-zinc-200/40 dark:border-white/5">
                   <label className="flex items-center gap-2.5 cursor-pointer select-none text-xs">
                     <input
                       type="checkbox"
@@ -437,10 +437,10 @@ export const ExportPanel: React.FC = () => {
                   <button
                     onClick={handlePublish}
                     disabled={publishing}
-                    className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-md transition-all cursor-pointer ${
+                    className={`px-4.5 py-2.5 rounded-xl font-extrabold text-xs flex items-center gap-2 shadow-md transition-all duration-300 cursor-pointer ${
                       publishing
                         ? 'bg-zinc-200 text-zinc-455 dark:bg-zinc-800 dark:text-zinc-650 cursor-wait'
-                        : 'bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-750 hover:to-fuchsia-750 text-white shadow-violet-555/15 hover:scale-[1.01] active:scale-98'
+                        : 'bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-500 hover:opacity-95 text-white shadow-lg shadow-violet-500/10 hover:scale-[1.015] active:scale-95 border border-violet-500/20'
                     }`}
                   >
                     {publishing ? (

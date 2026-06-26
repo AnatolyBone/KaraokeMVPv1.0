@@ -267,9 +267,9 @@ export const AuthSection: React.FC = () => {
   return (
     <div
       id="auth-section"
-      className={`rounded-2xl p-5 border shadow-sm transition-all mb-4 ${
+      className={`rounded-2xl p-5 border shadow-sm transition-all duration-300 mb-4 ${
         theme === 'dark'
-          ? 'bg-zinc-950/80 border-zinc-800/80 text-zinc-100'
+          ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 text-zinc-100 hover:border-violet-500/20'
           : 'bg-white border-zinc-200 text-zinc-900'
       }`}
     >
@@ -297,7 +297,7 @@ export const AuthSection: React.FC = () => {
       {user ? (
         <div className="flex flex-col gap-3.5">
           {/* User Profile Card */}
-          <div className="flex items-center gap-3 p-2 rounded-xl bg-zinc-100/30 dark:bg-zinc-900/30 border border-zinc-100 dark:border-zinc-900">
+          <div className="flex items-center gap-3 p-2.5 rounded-xl bg-zinc-100/30 dark:bg-zinc-900/20 border border-zinc-100 dark:border-white/5">
             {user.user_metadata?.avatar_url || user.user_metadata?.photo_url ? (
               <img
                 src={user.user_metadata.avatar_url || user.user_metadata.photo_url}
@@ -347,7 +347,7 @@ export const AuthSection: React.FC = () => {
                   alert(error.message);
                 }
               }}
-              className="w-full py-2 rounded-xl border border-red-500/30 text-red-500 bg-red-500/5 hover:bg-red-500/10 font-bold text-[10px] text-center cursor-pointer transition-all mb-2"
+              className="w-full py-2.5 rounded-xl border border-red-500/30 text-red-500 bg-red-500/5 hover:bg-red-500/10 font-bold text-[10px] text-center cursor-pointer transition-all duration-300 hover:scale-[1.015] active:scale-95 mb-2"
             >
               {language === 'ru' ? 'Получить права администратора' : 'Become Administrator'}
             </button>
@@ -356,7 +356,7 @@ export const AuthSection: React.FC = () => {
           {/* Logout Button */}
           <button
             onClick={handleLogout}
-            className="w-full py-2.5 rounded-xl border border-red-500/20 text-red-500 hover:bg-red-500/10 font-bold text-[11px] flex items-center justify-center gap-2 transition-all"
+            className="w-full py-2.5 rounded-xl border border-red-500/20 text-red-500 hover:bg-red-500/10 font-bold text-[11px] flex items-center justify-center gap-2 transition-all duration-300 hover:scale-[1.015] active:scale-95"
           >
             <LogOut size={13} />
             {dict.authLogout}
@@ -383,7 +383,7 @@ export const AuthSection: React.FC = () => {
               <button
                 onClick={handleTelegramAppLinkAuth}
                 disabled={waitingForTelegram}
-                className="w-full py-3 rounded-xl bg-sky-500 hover:bg-sky-600 disabled:bg-sky-500/50 text-white font-bold text-xs flex items-center justify-center gap-2.5 transition-all hover:scale-[1.02] active:scale-95 shadow-md shadow-sky-500/15 cursor-pointer"
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 disabled:bg-sky-500/50 text-white font-extrabold text-xs flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-[1.015] active:scale-95 shadow-lg shadow-sky-500/20 cursor-pointer border border-sky-400/20"
               >
                 {waitingForTelegram ? (
                   <RefreshCw size={14} className="animate-spin" />
