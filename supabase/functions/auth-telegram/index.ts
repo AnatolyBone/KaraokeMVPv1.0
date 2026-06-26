@@ -98,18 +98,27 @@ async function generateDeterministicPassword(telegramId: string, botToken: strin
     .join('');
 }
 
-async function sendTelegramMessage(chatId: number, text: string, botToken: string) {
+function escapeMarkdown(text: string): string {
+  return text.replace(/[_*`\[]/g, '\\$&');
+}
+
+
+async function sendTelegramMessage(chatId: number, text: string, botToken: string, replyMarkup?: any) {
   try {
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const payload: any = {
+      chat_id: chatId,
+      text: text,
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true,
+    };
+    if (replyMarkup) {
+      payload.reply_markup = replyMarkup;
+    }
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: text,
-        parse_mode: 'Markdown',
-        disable_web_page_preview: true,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!response.ok) {
       console.error('Failed to send Telegram message:', await response.text());
@@ -118,6 +127,23 @@ async function sendTelegramMessage(chatId: number, text: string, botToken: strin
     console.error('Error sending Telegram message:', err);
   }
 }
+
+const defaultKeyboard = {
+  keyboard: [
+    [
+      { text: "🎤 Открыть плеер", web_app: { url: "https://karaoke-mv-pv1-0.vercel.app" } },
+      { text: "🎵 Мой импорт" }
+    ],
+    [
+      { text: "👤 Профиль" },
+      { text: "ℹ️ Справка" },
+      { text: "🆘 Поддержка" }
+    ]
+  ],
+  resize_keyboard: true,
+  is_persistent: true
+};
+
 
 // Автоматическая конфигурация бота (кнопка меню, команды, описание)
 async function configureBot(botToken: string) {
@@ -211,6 +237,31 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Сценарий ручной настройки и проверки вебхука
+    if (action === 'setup-webhook') {
+      const webhookUrl = `${supabaseUrl}/functions/v1/auth-telegram`;
+      const setWebhookUrl = `https://api.telegram.org/bot${botToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}&allowed_updates=["message"]`;
+      const setRes = await fetch(setWebhookUrl);
+      const setData = await setRes.json();
+
+      const getInfoUrl = `https://api.telegram.org/bot${botToken}/getWebhookInfo`;
+      const infoRes = await fetch(getInfoUrl);
+      const infoData = await infoRes.json();
+
+      await configureBot(botToken);
+
+      return new Response(JSON.stringify({
+        ok: true,
+        message: 'Webhook configuration executed',
+        setWebhookResult: setData,
+        webhookInfo: infoData,
+        webhookUrl: webhookUrl
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Логируем запрос в таблицу для отладки
     try {
@@ -372,7 +423,8 @@ Deno.serve(async (req) => {
             await sendTelegramMessage(
               chatId,
               `🎵 *Этот трек уже был импортирован ранее!*\n*Название*: ${trackLabel}\n\nОн готов к работе и ждет вас в списке импорта из Telegram на сайте.\n🔗 https://karaoke-mv-pv1-0.vercel.app`,
-              botToken
+              botToken,
+              defaultKeyboard
             );
             return new Response('Audio already shared', { status: 200 });
           }
@@ -400,25 +452,58 @@ Deno.serve(async (req) => {
         await sendTelegramMessage(
           chatId,
           `🎵 *Трек успешно получен!*\n*Название*: ${trackLabel}\n\nТеперь вы можете загрузить его на сайте:\n1️⃣ Откройте [сайт](https://karaoke-mv-pv1-0.vercel.app).\n2️⃣ В разделе выбора музыки нажмите *«Импортировать из Telegram»*.\n3️⃣ Выберите этот трек в списке для мгновенной загрузки! 🚀`,
-          botToken
+          botToken,
+          defaultKeyboard
         );
       }
       return new Response('Audio webhook processed successfully', { status: 200 });
     }
 
-    // 1.2 Проверка на входящий вебхук Telegram (Текст)
-    if (body && body.message && body.message.text) {
-      const text = body.message.text;
+    // 2.2 Проверка на входящий вебхук Telegram (Любое сообщение, кроме аудиоимпорта)
+    if (body && body.message && !body.message.audio) {
       const chatId = body.message.chat.id;
+      const fromUser = body.message.from;
+      const text = body.message.text || '';
 
       // Запускаем автоматическую настройку бота в фоне
       configureBot(botToken).catch((err) => console.error('Bot auto-config error:', err));
 
-      if (text.startsWith('/start auth_')) {
-        const sessionId = text.replace('/start auth_', '').trim();
-        const fromUser = body.message.from;
+      if (fromUser) {
+        const adminId = 2018254756;
 
-        if (fromUser && sessionId) {
+        // Сценарий 1: Ответ администратора на сообщение поддержки
+        if (fromUser.id === adminId && body.message.reply_to_message) {
+          const replyTo = body.message.reply_to_message;
+          const originalText = replyTo.text || replyTo.caption || '';
+          const match = originalText.match(/ID:?\s*(\d+)/i);
+
+          if (match) {
+            const targetUserId = Number(match[1]);
+            const copyUrl = `https://api.telegram.org/bot${botToken}/copyMessage`;
+            const res = await fetch(copyUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: targetUserId,
+                from_chat_id: chatId,
+                message_id: body.message.message_id,
+              })
+            });
+
+            if (res.ok) {
+              await sendTelegramMessage(chatId, `✅ *Ответ успешно отправлен пользователю* (ID: ${targetUserId})`, botToken, defaultKeyboard);
+            } else {
+              const errText = await res.text();
+              console.error('Failed to copy message to user:', errText);
+              await sendTelegramMessage(chatId, `❌ *Не удалось отправить ответ:* ${errText}`, botToken, defaultKeyboard);
+            }
+            return new Response('Admin reply processed', { status: 200 });
+          }
+        }
+
+        // Сценарий 2: Глубокая ссылка авторизации
+        if (text.startsWith('/start auth_')) {
+          const sessionId = text.replace('/start auth_', '').trim();
           // Ищем сессию в БД
           const { data: sessionData, error: sessionError } = await supabaseAdmin
             .from('telegram_auth_sessions')
@@ -427,8 +512,6 @@ Deno.serve(async (req) => {
             .single();
 
           if (sessionError || !sessionData) {
-            // Если сессия не найдена, возможно она уже удалена/авторизована.
-            // Чтобы избежать спама при повторных запросах Telegram, просто возвращаем 200 OK.
             return new Response('Session already processed or missing', { status: 200 });
           }
 
@@ -462,7 +545,7 @@ Deno.serve(async (req) => {
               if (foundUser) {
                 userId = foundUser.id;
               } else {
-                await sendTelegramMessage(chatId, '⚠️ Ошибка авторизации: не удалось связать аккаунт.', botToken);
+                await sendTelegramMessage(chatId, '⚠️ Ошибка авторизации: не удалось связать аккаунт.', botToken, defaultKeyboard);
                 return new Response('User auth linking failed', { status: 200 });
               }
             }
@@ -491,7 +574,7 @@ Deno.serve(async (req) => {
             .eq('id', sessionId);
 
           if (updateError) {
-            await sendTelegramMessage(chatId, '⚠️ Ошибка обновления сессии на сервере.', botToken);
+            await sendTelegramMessage(chatId, '⚠️ Ошибка обновления сессии на сервере.', botToken, defaultKeyboard);
             return new Response('Session update failed', { status: 200 });
           }
 
@@ -499,18 +582,162 @@ Deno.serve(async (req) => {
           await sendTelegramMessage(
             chatId,
             `🎉 *Авторизация успешна!*\n\nВы вошли в систему:\n👤 *Имя*: ${username}\n🆔 *ID*: ${fromUser.id}\n\n👉 Возвращайтесь на вкладку браузера или откройте сайт по ссылке ниже:\n🔗 https://karaoke-mv-pv1-0.vercel.app`,
-            botToken
+            botToken,
+            defaultKeyboard
+          );
+          return new Response('Auth deep link processed', { status: 200 });
+        }
+
+        // Сценарий 3: Команды старта и справки
+        if (text === '/start' || text === '/help') {
+          await sendTelegramMessage(
+            chatId,
+            `👋 *Привет! Добро пожаловать в Karaoke LRC Maker!* 🎤\n\nЭтот бот помогает быстро авторизоваться на сайте и загружать треки напрямую из Telegram.\n\n⚡️ *Что умеет бот:*\n1️⃣ **Вход в 1 клик**: Нажмите кнопку авторизации на сайте, и бот мгновенно свяжет ваш аккаунт.\n2️⃣ **Импорт музыки**: Просто отправьте мне любой аудиофайл (до 20 МБ), и он сразу появится в вашем личном кабинете на сайте без скачивания на телефон!\n\n🔗 *Открыть сайт*: https://karaoke-mv-pv1-0.vercel.app`,
+            botToken,
+            defaultKeyboard
+          );
+          return new Response('Command processed', { status: 200 });
+        }
+
+        // Сценарий 4: Кнопка "🎵 Мой импорт"
+        if (text === '🎵 Мой импорт') {
+          const { data: shares, error } = await supabaseAdmin
+            .from('telegram_audio_shares')
+            .select('file_name, artist, title, created_at')
+            .eq('telegram_id', fromUser.id)
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+          let replyText = '';
+          if (error) {
+            console.error('Failed to query shares:', error);
+            replyText = '⚠️ Не удалось получить список импортированных треков. Попробуйте позже.';
+          } else if (!shares || shares.length === 0) {
+            replyText = '🎵 *Мой импорт*\n\nУ вас пока нет импортированных треков.\n\n📥 *Как добавить трек:*\nПросто пришлите в этот чат любой аудиофайл (MP3, WAV, M4A до 20 МБ), и он автоматически появится в вашем личном кабинете на сайте!';
+          } else {
+            replyText = '🎵 *Ваши последние импортированные треки:*\n\n';
+            shares.forEach((share, index) => {
+              const label = share.artist && share.title ? `${share.artist} — ${share.title}` : share.file_name;
+              const date = new Date(share.created_at).toLocaleDateString('ru-RU');
+              replyText += `${index + 1}. *${escapeMarkdown(label)}* (${date})\n`;
+            });
+            replyText += '\n👉 Откройте сайт, чтобы начать работу с ними:\n🔗 https://karaoke-mv-pv1-0.vercel.app';
+          }
+          await sendTelegramMessage(chatId, replyText, botToken, defaultKeyboard);
+          return new Response('My import processed', { status: 200 });
+        }
+
+        // Сценарий 5: Кнопка "👤 Профиль"
+        if (text === '👤 Профиль') {
+          const { data: profile, error: profileErr } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .eq('telegram_id', fromUser.id)
+            .maybeSingle();
+
+          let profileText = '';
+          if (profileErr) {
+            console.error('Failed to query profile:', profileErr);
+            profileText = '⚠️ Ошибка при запросе вашего профиля. Попробуйте позже.';
+          } else if (!profile) {
+            profileText = `👤 *Ваш профиль в Karaoke LRC Maker*\n\nВы еще не вошли на сайт через этого бота.\n\n⚡️ *Как войти на сайт:*\n1. Перейдите на страницу входа на сайте.\n2. Нажмите кнопку *Войти через Telegram*.\n3. Бот свяжет ваш профиль автоматически!`;
+          } else {
+            const roleLabel = profile.role === 'admin' ? 'Администратор 👑' : profile.role === 'pro' ? 'PRO-аккаунт 🔥' : 'Бесплатный тариф 🎧';
+            const { count, error: countErr } = await supabaseAdmin
+              .from('telegram_audio_shares')
+              .select('*', { count: 'exact', head: true })
+              .eq('telegram_id', fromUser.id);
+
+            const tracksCount = countErr ? 0 : (count || 0);
+
+            profileText = `👤 *Ваш профиль в Karaoke LRC Maker*\n\n` +
+              `• *Пользователь*: ${escapeMarkdown(profile.username || 'Без имени')}\n` +
+              `• *Telegram ID*: \`${fromUser.id}\`\n` +
+              `• *Тариф*: *${roleLabel}*\n` +
+              `• *Импортировано треков*: *${tracksCount}*\n\n` +
+              `🔗 *Сайт*: https://karaoke-mv-pv1-0.vercel.app`;
+          }
+          await sendTelegramMessage(chatId, profileText, botToken, defaultKeyboard);
+          return new Response('Profile processed', { status: 200 });
+        }
+
+        // Сценарий 6: Кнопка "ℹ️ Справка"
+        if (text === 'ℹ️ Справка') {
+          const helpText = `ℹ️ *Справка по Karaoke LRC Maker* 🎤\n\n` +
+            `Это профессиональный веб-инструмент для создания караоке-таймингов (.lrc) и рендеринга видеороликов.\n\n` +
+            `📖 *Инструкции:*\n` +
+            `1️⃣ **Вход в 1 клик**: Нажмите кнопку авторизации на сайте, бот подтвердит вход, и вы будете перенаправлены в редактор.\n` +
+            `2️⃣ **Мгновенный импорт**: Пришлите любой трек (до 20 МБ) в чат с ботом. Он сохранится в вашем облаке и будет доступен на вкладке «Импорт из Telegram» в плеере.\n` +
+            `3️⃣ **Поддержка**: Любой текст, написанный боту (не кнопка и не команда), пересылается администратору для ответа.\n\n` +
+            `🔗 *Наш сайт*: https://karaoke-mv-pv1-0.vercel.app`;
+          await sendTelegramMessage(chatId, helpText, botToken, defaultKeyboard);
+          return new Response('Help processed', { status: 200 });
+        }
+
+        // Сценарий 7: Кнопка "🆘 Поддержка"
+        if (text === '🆘 Поддержка') {
+          const supportText = `🆘 *Служба поддержки Karaoke LRC Maker* ✉️\n\n` +
+            `Нужна помощь или хотите предложить идею?\n\n` +
+            `✍️ *Как связаться с нами:*\n` +
+            `Просто напишите ваш вопрос прямо сюда (текстом или прикрепив скриншот/медиа).\n` +
+            `Администратор увидит ваше сообщение и ответит вам прямо в этот диалог.\n\n` +
+            `👇 *Напишите ваш вопрос ниже:*`;
+          await sendTelegramMessage(chatId, supportText, botToken, defaultKeyboard);
+          return new Response('Support instructions processed', { status: 200 });
+        }
+
+        // Сценарий 8: Обращение в поддержку (пересылка администратору)
+        if (fromUser.id !== adminId) {
+          const userName = `${fromUser.first_name || ''} ${fromUser.last_name || ''}`.trim() || 'Пользователь';
+          const usernamePart = fromUser.username ? ` (@${fromUser.username})` : '';
+          const escapedName = escapeMarkdown(userName);
+          const escapedUsername = usernamePart ? escapeMarkdown(usernamePart) : '';
+
+          if (text) {
+            await sendTelegramMessage(
+              adminId,
+              `📬 *Новое обращение в поддержку!*\n👤 *От*: ${escapedName}${escapedUsername}\n🆔 ID: \`${fromUser.id}\`\n\n💬 *Сообщение*:\n${text}`,
+              botToken
+            );
+          } else {
+            await sendTelegramMessage(
+              adminId,
+              `📬 *Новое обращение в поддержку (медиа)*\n👤 *От*: ${escapedName}${escapedUsername}\n🆔 ID: \`${fromUser.id}\``,
+              botToken
+            );
+            // Копируем медиа админу
+            const copyUrl = `https://api.telegram.org/bot${botToken}/copyMessage`;
+            await fetch(copyUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: adminId,
+                from_chat_id: chatId,
+                message_id: body.message.message_id,
+              })
+            });
+          }
+
+          // Подтверждение пользователю
+          await sendTelegramMessage(
+            chatId,
+            `📨 *Ваше сообщение отправлено в поддержку!*\nАдминистратор ответит вам в ближайшее время прямо здесь в чате.`,
+            botToken,
+            defaultKeyboard
+          );
+        } else {
+          // Администратор прислал обычное сообщение без reply к другому сообщению
+          await sendTelegramMessage(
+            chatId,
+            `👑 *Панель администратора Karaoke LRC Maker*\n\n` +
+            `• Чтобы ответить пользователю, сделайте **Reply** (Ответ) на его сообщение с ID.\n` +
+            `• Бот автоматически перешлет ваш ответ пользователю.`,
+            botToken,
+            defaultKeyboard
           );
         }
-      } else {
-        await sendTelegramMessage(
-          chatId,
-          `👋 *Привет! Добро пожаловать в Karaoke LRC Maker!* 🎤\n\nЭтот бот помогает быстро авторизоваться на сайте и загружать треки напрямую из Telegram.\n\n⚡️ *Что умеет бот:*\n1️⃣ **Вход в 1 клик**: Нажмите кнопку авторизации на сайте, и бот мгновенно свяжет ваш аккаунт.\n2️⃣ **Импорт музыки**: Просто отправьте мне любой аудиофайл (до 20 МБ), и он сразу появится в вашем личном кабинете на сайте без скачивания на телефон!\n\n🔗 *Открыть сайт*: https://karaoke-mv-pv1-0.vercel.app`,
-          botToken
-        );
+        return new Response('Webhook processed successfully', { status: 200 });
       }
-
-      return new Response('Webhook processed successfully', { status: 200 });
     }
 
     // 2. Дополнительные действия: поиск текстов в качестве CORS прокси

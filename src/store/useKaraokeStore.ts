@@ -5,6 +5,7 @@ import { splitWordIntoSyllables } from '../utils/hyphenation';
 import { parseLRC } from '../utils/lrc';
 import { supabase } from '../services/supabaseClient';
 import { User } from '@supabase/supabase-js';
+import { audioRef } from '../audioRef';
 
 interface KaraokeState {
   step: AppStep;
@@ -131,6 +132,16 @@ interface KaraokeState {
   fetchUserProfile: (userId: string) => Promise<void>;
   setSyncing: (syncing: boolean) => void;
   syncProjects: () => Promise<void>;
+  publishKaraokeTrack: (params: {
+    artist: string;
+    title: string;
+    album?: string;
+    lines: LyricLine[];
+    videoStyle: VideoStyleOptions;
+    audioFile?: File;
+    coverFile?: File;
+  }) => Promise<{ success: boolean; error?: string }>;
+  cacheLrcLibTrack: (track: any) => Promise<void>;
 
   toggleTheme: () => void;
   clearAll: () => void;
@@ -1127,6 +1138,165 @@ export const useKaraokeStore = create<KaraokeState>()(
           console.error('Error in syncProjects:', err);
         } finally {
           set({ syncing: false });
+        }
+      },
+
+      publishKaraokeTrack: async (params) => {
+        const { user } = get();
+        if (!user) {
+          return { success: false, error: 'Пожалуйста, авторизуйтесь перед публикацией' };
+        }
+
+        try {
+          // 1. Поиск или создание песни
+          let { data: song, error: songErr } = await supabase
+            .from('songs')
+            .select('id')
+            .ilike('artist', params.artist)
+            .ilike('title', params.title)
+            .maybeSingle();
+
+          if (songErr) throw songErr;
+
+          if (!song) {
+            const { data: newSong, error: insSongErr } = await supabase
+              .from('songs')
+              .insert({
+                artist: params.artist,
+                title: params.title,
+                album: params.album || null,
+                duration_seconds: audioRef.current?.duration || null,
+                bpm: get().bpm,
+                beats: get().beats,
+              })
+              .select('id')
+              .single();
+
+            if (insSongErr || !newSong) throw insSongErr || new Error('Не удалось создать карточку песни');
+            song = newSong;
+          }
+
+          // 2. Загрузка аудио/обложки в хранилище Supabase
+          let audioPath = null;
+          if (params.audioFile) {
+            const fileExt = params.audioFile.name.split('.').pop() || 'mp3';
+            const fileName = `${crypto.randomUUID()}.${fileExt}`;
+            const { data: uploadData, error: uploadErr } = await supabase.storage
+              .from('published_audio')
+              .upload(`${user.id}/${fileName}`, params.audioFile, {
+                cacheControl: '3600',
+                upsert: false
+              });
+            if (uploadErr) throw uploadErr;
+            audioPath = uploadData.path;
+          }
+
+          let coverPath = null;
+          if (params.coverFile) {
+            const fileExt = params.coverFile.name.split('.').pop() || 'png';
+            const fileName = `${crypto.randomUUID()}.${fileExt}`;
+            const { data: uploadData, error: uploadErr } = await supabase.storage
+              .from('published_covers')
+              .upload(`${user.id}/${fileName}`, params.coverFile, {
+                cacheControl: '3600',
+                upsert: false
+              });
+            if (uploadErr) throw uploadErr;
+            coverPath = uploadData.path;
+          }
+
+          // 3. Создание или обновление публикации
+          const { data: existingPub } = await supabase
+            .from('published_karaoke')
+            .select('id, audio_storage_path, cover_storage_path')
+            .eq('song_id', song.id)
+            .eq('publisher_id', user.id)
+            .maybeSingle();
+
+          if (existingPub) {
+            const { error: updErr } = await supabase
+              .from('published_karaoke')
+              .update({
+                lines: params.lines,
+                video_style: params.videoStyle,
+                audio_storage_path: audioPath || existingPub.audio_storage_path,
+                cover_storage_path: coverPath || existingPub.cover_storage_path,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existingPub.id);
+            if (updErr) throw updErr;
+          } else {
+            const { error: insErr } = await supabase
+              .from('published_karaoke')
+              .insert({
+                song_id: song.id,
+                publisher_id: user.id,
+                lines: params.lines,
+                video_style: params.videoStyle,
+                audio_storage_path: audioPath,
+                cover_storage_path: coverPath,
+              });
+            if (insErr) throw insErr;
+          }
+
+          return { success: true };
+        } catch (err: any) {
+          console.error('Failed to publish karaoke track:', err);
+          return { success: false, error: err.message || 'Ошибка публикации' };
+        }
+      },
+
+      cacheLrcLibTrack: async (track) => {
+        const { user } = get();
+        if (!user) return; // Only cache if authenticated
+        
+        try {
+          // 1. Проверяем, есть ли трек уже в нашей базе
+          const { data: existingSong } = await supabase
+            .from('songs')
+            .select('id')
+            .ilike('artist', track.artistName)
+            .ilike('title', track.trackName)
+            .maybeSingle();
+            
+          if (existingSong) {
+            return; // Уже есть в нашей базе
+          }
+          
+          // 2. Создаем песню в songs
+          const { data: newSong, error: songErr } = await supabase
+            .from('songs')
+            .insert({
+              artist: track.artistName,
+              title: track.trackName,
+              album: track.albumName || null,
+              duration_seconds: track.duration || null,
+              lrclib_id: typeof track.id === 'number' ? track.id : null,
+            })
+            .select('id')
+            .single();
+            
+          if (songErr || !newSong) {
+            console.error('Failed to create song for cache:', songErr);
+            return;
+          }
+          
+          // 3. Создаем запись в published_karaoke
+          const lines = parseLRC(track.syncedLyrics || track.plainLyrics || '');
+          const { error: pubErr } = await supabase
+            .from('published_karaoke')
+            .insert({
+              song_id: newSong.id,
+              publisher_id: user.id,
+              lines: lines,
+              video_style: get().videoStyle,
+            });
+            
+          if (pubErr) {
+            console.error('Failed to cache track in published_karaoke:', pubErr);
+          }
+        } catch (err) {
+          console.error('Error in cacheLrcLibTrack:', err);
         }
       },
     }),

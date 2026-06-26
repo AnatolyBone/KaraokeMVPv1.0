@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useKaraokeStore, getDefaultProjectTitle } from '../../store/useKaraokeStore';
 import { generateLRC } from '../../utils/lrc';
 import { generateSRT, generateASS, generateVTT } from '../../utils/subtitleFormats';
-import { FileDown, Copy, Check, AlertTriangle, Layers } from 'lucide-react';
+import { FileDown, Copy, Check, AlertTriangle, Layers, Database, Upload, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { localization } from '../../utils/localization';
+import { loadAudioFromDB, loadCoverFromDB } from '../../utils/db';
+import { AuthSection } from '../../components/AuthSection';
 
 type ExportFormat = 'lrc' | 'srt' | 'ass' | 'vtt';
 
@@ -15,11 +17,102 @@ export const ExportPanel: React.FC = () => {
     setCurrentProjectTitle,
     theme,
     videoStyle,
-    language
+    language,
+    user,
+    publishKaraokeTrack,
+    trackMetadata,
   } = useKaraokeStore();
   const [format, setFormat] = useState<ExportFormat>('lrc');
   const dict = localization[language];
   const [copied, setCopied] = useState(false);
+
+  // State for publishing
+  const [artist, setArtist] = useState('');
+  const [title, setTitle] = useState('');
+  const [album, setAlbum] = useState('');
+  
+  const [hasLocalAudio, setHasLocalAudio] = useState(false);
+  const [hasLocalCover, setHasLocalCover] = useState(false);
+  const [uploadAudio, setUploadAudio] = useState(false);
+  const [uploadCover, setUploadCover] = useState(false);
+  
+  const [publishing, setPublishing] = useState(false);
+  const [publishStatus, setPublishStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [pubErrorMsg, setPubErrorMsg] = useState('');
+
+  // Initializing state with metadata or parsed project title
+  useEffect(() => {
+    if (trackMetadata) {
+      setArtist(trackMetadata.artist || '');
+      setTitle(trackMetadata.title || '');
+      setAlbum(trackMetadata.album || '');
+    } else {
+      const projTitle = currentProjectTitle || '';
+      if (projTitle.includes(' - ')) {
+        const parts = projTitle.split(' - ');
+        setArtist(parts[0].trim());
+        setTitle(parts[1].trim());
+      } else {
+        setTitle(projTitle);
+      }
+    }
+  }, [trackMetadata, currentProjectTitle]);
+
+  // Check files in DB
+  useEffect(() => {
+    const checkDBFiles = async () => {
+      try {
+        const audioFile = await loadAudioFromDB();
+        setHasLocalAudio(!!audioFile);
+        setUploadAudio(!!audioFile);
+
+        const coverFile = await loadCoverFromDB();
+        setHasLocalCover(!!coverFile);
+        setUploadCover(!!coverFile);
+      } catch (err) {
+        console.error('Failed to load DB files on export panel init:', err);
+      }
+    };
+    checkDBFiles();
+  }, []);
+
+  const handlePublish = async () => {
+    if (!artist.trim() || !title.trim()) {
+      alert(language === 'ru' ? 'Заполните Исполнителя и Название песни!' : 'Please fill in Artist and Song Title!');
+      return;
+    }
+    setPublishing(true);
+    setPublishStatus('idle');
+    setPubErrorMsg('');
+
+    try {
+      const audioFile = uploadAudio ? await loadAudioFromDB() : undefined;
+      const coverFile = uploadCover ? await loadCoverFromDB() : undefined;
+
+      const res = await publishKaraokeTrack({
+        artist: artist.trim(),
+        title: title.trim(),
+        album: album.trim() || undefined,
+        lines,
+        videoStyle,
+        audioFile: audioFile || undefined,
+        coverFile: coverFile ? (coverFile instanceof File ? coverFile : new File([coverFile], 'cover.png', { type: coverFile.type })) : undefined,
+      });
+
+      if (res.success) {
+        setPublishStatus('success');
+      } else {
+        setPublishStatus('error');
+        setPubErrorMsg(res.error || 'Unknown error');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setPublishStatus('error');
+      setPubErrorMsg(err.message || 'Error occurred');
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   const timedLinesCount = lines.filter((line) => line.time !== null).length;
 
@@ -184,6 +277,167 @@ export const ExportPanel: React.FC = () => {
                 : 'bg-zinc-50 border-zinc-200 text-zinc-800'
             }`}
           />
+
+          {/* Cloud Publishing Card */}
+          <div className={`mt-6 rounded-2xl border p-5 transition-all ${
+            theme === 'dark'
+              ? 'bg-zinc-900/40 border-zinc-800/80 text-zinc-150'
+              : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+          }`}>
+            <div className="flex items-center gap-2 mb-3">
+              <Database className="text-violet-500" size={18} />
+              <h4 className="font-extrabold text-sm uppercase tracking-wider">
+                {language === 'ru' ? 'Публикация в базу караоке' : 'Publish to Karaoke DB'}
+              </h4>
+            </div>
+
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-450 mb-4 leading-relaxed">
+              {language === 'ru'
+                ? 'Опубликуйте эту песню в общий каталог, чтобы вы и другие пользователи могли мгновенно запустить её в режиме «Караоке».'
+                : 'Publish this track to the shared catalog so you and other users can instantly sing it in Karaoke mode.'}
+            </p>
+
+            {!user ? (
+              <div className="flex flex-col gap-3">
+                <div className="p-3 border border-yellow-500/20 bg-yellow-500/[0.02] text-yellow-600 dark:text-yellow-400 rounded-xl text-[11px] leading-relaxed">
+                  ⚠️ {language === 'ru'
+                    ? 'Для публикации песен требуется авторизация через Telegram. Пожалуйста, войдите в аккаунт ниже:'
+                    : 'Log in with Telegram is required to publish songs. Please authenticate below:'}
+                </div>
+                <AuthSection />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {/* Inputs grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-550">
+                      {language === 'ru' ? 'Исполнитель' : 'Artist'}
+                    </label>
+                    <input
+                      type="text"
+                      value={artist}
+                      onChange={(e) => setArtist(e.target.value)}
+                      placeholder={language === 'ru' ? 'Исполнитель...' : 'Artist name...'}
+                      className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
+                        theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                      }`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-550">
+                      {language === 'ru' ? 'Название трека' : 'Track Title'}
+                    </label>
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder={language === 'ru' ? 'Название...' : 'Track title...'}
+                      className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
+                        theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                      }`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-550">
+                      {language === 'ru' ? 'Альбом (опционально)' : 'Album (optional)'}
+                    </label>
+                    <input
+                      type="text"
+                      value={album}
+                      onChange={(e) => setAlbum(e.target.value)}
+                      placeholder={language === 'ru' ? 'Альбом...' : 'Album...'}
+                      className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
+                        theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Toggles */}
+                <div className="flex flex-col gap-2.5 bg-zinc-100/50 dark:bg-zinc-950/40 p-3 rounded-xl border border-zinc-200/40 dark:border-zinc-850/60">
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none text-xs">
+                    <input
+                      type="checkbox"
+                      checked={uploadAudio}
+                      disabled={!hasLocalAudio}
+                      onChange={(e) => setUploadAudio(e.target.checked)}
+                      className="rounded text-violet-650 focus:ring-violet-500 h-4 w-4 border-zinc-300 dark:border-zinc-800"
+                    />
+                    <div className="flex flex-col">
+                      <span className={!hasLocalAudio ? 'text-zinc-450 dark:text-zinc-650 line-through' : 'font-semibold text-zinc-800 dark:text-zinc-250'}>
+                        {language === 'ru' ? 'Загрузить аудиофайл на сервер' : 'Upload audio file to server'}
+                      </span>
+                      <span className="text-[9px] text-zinc-400 dark:text-zinc-550">
+                        {hasLocalAudio
+                          ? (language === 'ru' ? 'Позволит запускать трек онлайн без локальных файлов' : 'Allows playing the song online without local files')
+                          : (language === 'ru' ? 'Локальный аудиофайл не найден в кэше' : 'Local audio file not found in cache')}
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none text-xs border-t border-zinc-200/30 dark:border-zinc-800/40 pt-2">
+                    <input
+                      type="checkbox"
+                      checked={uploadCover}
+                      disabled={!hasLocalCover}
+                      onChange={(e) => setUploadCover(e.target.checked)}
+                      className="rounded text-violet-650 focus:ring-violet-500 h-4 w-4 border-zinc-300 dark:border-zinc-800"
+                    />
+                    <div className="flex flex-col">
+                      <span className={!hasLocalCover ? 'text-zinc-450 dark:text-zinc-650 line-through' : 'font-semibold text-zinc-800 dark:text-zinc-250'}>
+                        {language === 'ru' ? 'Загрузить обложку на сервер' : 'Upload cover art to server'}
+                      </span>
+                      <span className="text-[9px] text-zinc-400 dark:text-zinc-550">
+                        {hasLocalCover
+                          ? (language === 'ru' ? 'Добавит изображение обложки в карточку каталога' : 'Adds cover image to the catalog card')
+                          : (language === 'ru' ? 'Изображение обложки отсутствует' : 'Cover image not found')}
+                      </span>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Publish Button and Status */}
+                <div className="flex items-center gap-4 flex-wrap">
+                  <button
+                    onClick={handlePublish}
+                    disabled={publishing}
+                    className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-md transition-all cursor-pointer ${
+                      publishing
+                        ? 'bg-zinc-200 text-zinc-455 dark:bg-zinc-800 dark:text-zinc-650 cursor-wait'
+                        : 'bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-750 hover:to-fuchsia-750 text-white shadow-violet-555/15 hover:scale-[1.01] active:scale-98'
+                    }`}
+                  >
+                    {publishing ? (
+                      <>
+                        <Loader2 className="animate-spin" size={14} />
+                        {language === 'ru' ? 'Публикация...' : 'Publishing...'}
+                      </>
+                    ) : (
+                      <>
+                        <Upload size={14} />
+                        {language === 'ru' ? 'Опубликовать в общую базу' : 'Publish to Catalog'}
+                      </>
+                    )}
+                  </button>
+
+                  {publishStatus === 'success' && (
+                    <span className="text-xs font-semibold text-emerald-500 flex items-center gap-1">
+                      <CheckCircle size={14} />
+                      {language === 'ru' ? 'Успешно опубликовано!' : 'Published successfully!'}
+                    </span>
+                  )}
+
+                  {publishStatus === 'error' && (
+                    <span className="text-xs font-semibold text-red-500 flex items-center gap-1">
+                      <AlertCircle size={14} />
+                      {language === 'ru' ? `Ошибка: ${pubErrorMsg}` : `Error: ${pubErrorMsg}`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

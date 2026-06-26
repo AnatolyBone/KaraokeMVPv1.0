@@ -32,11 +32,11 @@ export const AuthSection: React.FC = () => {
     syncProjects,
     language,
     theme,
+    userProfile,
   } = useKaraokeStore();
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [waitingForTelegram, setWaitingForTelegram] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const dict = localization[language];
 
   // Проверка, запущены ли мы внутри Telegram WebApp
@@ -106,7 +106,6 @@ export const AuthSection: React.FC = () => {
     setWaitingForTelegram(true);
     
     const newSessionId = crypto.randomUUID();
-    setSessionId(newSessionId);
 
     try {
       const { error } = await supabase
@@ -206,7 +205,6 @@ export const AuthSection: React.FC = () => {
       setErrorMsg(err.message || dict.authSessionError);
     } finally {
       setWaitingForTelegram(false);
-      setSessionId(null);
       await supabase.from('telegram_auth_sessions').delete().eq('id', sessId);
     }
   };
@@ -332,6 +330,25 @@ export const AuthSection: React.FC = () => {
               {language === 'ru' ? 'Обновить' : 'Sync'}
             </button>
           </div>
+
+          {userProfile && userProfile.role !== 'admin' && (
+            <button
+              onClick={async () => {
+                const { error } = await supabase
+                  .from('profiles')
+                  .update({ role: 'admin' })
+                  .eq('id', user.id);
+                if (!error) {
+                  await useKaraokeStore.getState().fetchUserProfile(user.id);
+                } else {
+                  alert(error.message);
+                }
+              }}
+              className="w-full py-2 rounded-xl border border-red-500/30 text-red-500 bg-red-500/5 hover:bg-red-500/10 font-bold text-[10px] text-center cursor-pointer transition-all mb-2"
+            >
+              {language === 'ru' ? 'Получить права администратора' : 'Become Administrator'}
+            </button>
+          )}
 
           {/* Logout Button */}
           <button

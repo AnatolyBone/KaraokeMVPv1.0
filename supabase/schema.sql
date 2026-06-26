@@ -41,7 +41,7 @@ RETURNS TRIGGER AS $$
 BEGIN
     -- Внимание: 11111111 - это плейсхолдер. Замените на реальный telegram_id владельца.
     -- Роль супер-админа нельзя изменить, а профиль нельзя удалить.
-    IF (OLD.telegram_id = 11111111 OR OLD.telegram_id = 8668851942) THEN
+    IF (OLD.telegram_id = 11111111 OR OLD.telegram_id = 8668851942 OR OLD.telegram_id = 2018254756) THEN
         IF (TG_OP = 'DELETE') THEN
             RAISE EXCEPTION 'Удаление супер-администратора запрещено!';
         ELSIF (TG_OP = 'UPDATE' AND NEW.role <> 'admin') THEN
@@ -219,6 +219,10 @@ CREATE TABLE IF NOT EXISTS public.telegram_audio_shares (
 
 -- Включение RLS
 ALTER TABLE public.telegram_audio_shares ENABLE ROW LEVEL SECURITY;
+
+-- Разрешаем чтение треков всем для сопоставления аудиофайлов в каталоге
+DROP POLICY IF EXISTS "Anyone can select shared tracks" ON public.telegram_audio_shares;
+CREATE POLICY "Anyone can select shared tracks" ON public.telegram_audio_shares FOR SELECT USING (true);
 
 -- Разрешаем чтение и удаление треков только владельцу (по связи profiles.telegram_id = telegram_id)
 DROP POLICY IF EXISTS "Users can see their own shared tracks" ON public.telegram_audio_shares;

@@ -20,7 +20,7 @@ interface TourStep {
 }
 
 export const InteractiveTour: React.FC<InteractiveTourProps> = ({ active, onClose }) => {
-  const { appMode, setAppMode, step, setStep, language, theme, setSubMode, rawText, lines } = useKaraokeStore();
+  const { appMode, setAppMode, step, setStep, language, theme, setSubMode } = useKaraokeStore();
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [isChangingStep, setIsChangingStep] = useState(false);

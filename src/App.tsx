@@ -12,11 +12,12 @@ import { SidePanel } from './components/SidePanel';
 import { TimelineEditor } from './components/TimelineEditor';
 import { AuthSection } from './components/AuthSection';
 import { localization } from './utils/localization';
-import { Sun, Moon, Trash2, Type, Clock, Sparkles, Edit3, Zap, Settings, Shield, HelpCircle } from 'lucide-react';
+import { Sun, Moon, Trash2, Type, Clock, Sparkles, Edit3, Zap, Settings, Shield, HelpCircle, ChevronLeft } from 'lucide-react';
 import { clearAudioFromDB, clearCoverFromDB } from './utils/db';
 import { supabase } from './services/supabaseClient';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { InteractiveTour } from './components/InteractiveTour';
+import { KaraokeCatalog } from './components/KaraokeCatalog';
 
 const App: React.FC = () => {
   const {
@@ -460,7 +461,34 @@ const App: React.FC = () => {
           {appMode === 'karaoke' ? (
             <div className="flex flex-col gap-6">
               {!user && <AuthSection />}
-              <KaraokePreview />
+              {audioUrl ? (
+                <div className="flex flex-col gap-4">
+                  <div className="flex justify-start">
+                    <button
+                      onClick={() => {
+                        useKaraokeStore.getState().setAudio(null, null);
+                        useKaraokeStore.setState({
+                          lines: [],
+                          coverUrl: null,
+                          coverColors: null,
+                          currentProjectTitle: null,
+                        });
+                      }}
+                      className={`px-3.5 py-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all hover:scale-[1.02] active:scale-98 ${
+                        theme === 'dark'
+                          ? 'bg-zinc-950/60 border-zinc-800 text-zinc-350 hover:bg-zinc-950 hover:text-zinc-100 hover:border-zinc-700'
+                          : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 hover:border-zinc-300'
+                      }`}
+                    >
+                      <ChevronLeft size={14} />
+                      {language === 'ru' ? 'Назад в каталог' : 'Back to Catalog'}
+                    </button>
+                  </div>
+                  <KaraokePreview />
+                </div>
+              ) : (
+                <KaraokeCatalog />
+              )}
             </div>
           ) : (
             <>

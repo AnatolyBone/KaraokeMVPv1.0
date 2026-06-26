@@ -4,7 +4,7 @@ import { supabase } from '../services/supabaseClient';
 import { localization } from '../utils/localization';
 import { 
   X, Users, Music, Layers, Cpu, ShieldAlert, Trash2, Shield, User, 
-  Search, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle 
+  Search, RefreshCw, AlertTriangle, Settings, FileText 
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -13,7 +13,7 @@ interface AdminPanelModalProps {
   onClose: () => void;
 }
 
-type TabType = 'users' | 'songs' | 'published' | 'stems';
+type TabType = 'users' | 'songs' | 'published' | 'stems' | 'settings' | 'logs';
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClose }) => {
   const { theme, language } = useKaraokeStore();
@@ -28,6 +28,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
   const [songs, setSongs] = useState<any[]>([]);
   const [published, setPublished] = useState<any[]>([]);
   const [stems, setStems] = useState<any[]>([]);
+  const [settingsList, setSettingsList] = useState<any[]>([]);
+  const [debugLogs, setDebugLogs] = useState<any[]>([]);
+  
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
 
   // Super Admin check
   const superAdminTgId = Number(import.meta.env.VITE_SUPER_ADMIN_TG_ID || '11111111');
@@ -76,6 +82,21 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
           .order('created_at', { ascending: false });
         if (error) throw error;
         setStems(data || []);
+      } else if (activeTab === 'settings') {
+        const { data, error } = await supabase
+          .from('telegram_bot_settings')
+          .select('*')
+          .order('key', { ascending: true });
+        if (error) throw error;
+        setSettingsList(data || []);
+      } else if (activeTab === 'logs') {
+        const { data, error } = await supabase
+          .from('telegram_bot_debug_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        setDebugLogs(data || []);
       }
     } catch (err) {
       console.error(`Failed to fetch ${activeTab}:`, err);
@@ -86,7 +107,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
 
   const handleRoleChange = async (profileId: string, currentRole: string, telegramId: number) => {
     // Block modifying super admins
-    if (telegramId === superAdminTgId || telegramId === 8668851942) {
+    if (telegramId === superAdminTgId || telegramId === 8668851942 || telegramId === 2018254756) {
       alert(dict.adminSuperAdminAlert);
       return;
     }
@@ -106,9 +127,69 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
     }
   };
 
-  const handleDeleteItem = async (table: string, id: string, extraCheck?: boolean, telegramId?: number) => {
+  const handleSaveSetting = async (key: string, value: string) => {
+    try {
+      const { error } = await supabase
+        .from('telegram_bot_settings')
+        .upsert({ key, value });
+      if (error) throw error;
+      alert(language === 'ru' ? 'Настройка успешно сохранена!' : 'Setting saved successfully!');
+      fetchData();
+    } catch (err: any) {
+      alert(`Error saving setting: ${err.message}`);
+    }
+  };
+
+  const handleAddSetting = async () => {
+    if (!newKey.trim()) return;
+    try {
+      const { error } = await supabase
+        .from('telegram_bot_settings')
+        .insert({ key: newKey.trim(), value: newValue.trim() });
+      if (error) throw error;
+      setNewKey('');
+      setNewValue('');
+      fetchData();
+    } catch (err: any) {
+      alert(`Error adding setting: ${err.message}`);
+    }
+  };
+
+  const handleDeleteSetting = async (key: string) => {
+    if (!confirm(language === 'ru' ? `Удалить настройку ${key}?` : `Delete setting ${key}?`)) return;
+    try {
+      const { error } = await supabase
+        .from('telegram_bot_settings')
+        .delete()
+        .eq('key', key);
+      if (error) throw error;
+      fetchData();
+    } catch (err: any) {
+      alert(`Error deleting setting: ${err.message}`);
+    }
+  };
+
+  const handleClearLogs = async () => {
+    if (!confirm(language === 'ru' ? 'Вы уверены, что хотите удалить ВСЕ логи отладки?' : 'Are you sure you want to delete ALL debug logs?')) return;
+    try {
+      const { error } = await supabase
+        .from('telegram_bot_debug_logs')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000');
+      if (error) throw error;
+      fetchData();
+    } catch (err: any) {
+      alert(`Error clearing logs: ${err.message}`);
+    }
+  };
+
+  const handleSettingValueChange = (key: string, value: string) => {
+    setSettingsList(prev => prev.map(s => s.key === key ? { ...s, value } : s));
+  };
+
+  const handleDeleteItem = async (table: string, id: string, _extraCheck?: boolean, telegramId?: number) => {
     // Block deleting super admins
-    if (table === 'profiles' && (telegramId === superAdminTgId || telegramId === 8668851942)) {
+    if (table === 'profiles' && (telegramId === superAdminTgId || telegramId === 8668851942 || telegramId === 2018254756)) {
       alert(dict.adminSuperAdminAlert);
       return;
     }
@@ -248,6 +329,30 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
             <Cpu size={14} />
             {dict.adminTabStems}
           </button>
+
+          <button
+            onClick={() => { setActiveTab('settings'); setSearchQuery(''); }}
+            className={`flex-1 min-w-[100px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+              activeTab === 'settings'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-250/10'
+                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            <Settings size={14} />
+            {language === 'ru' ? 'Настройки' : 'Settings'}
+          </button>
+
+          <button
+            onClick={() => { setActiveTab('logs'); setSearchQuery(''); }}
+            className={`flex-1 min-w-[100px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+              activeTab === 'logs'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-250/10'
+                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            <FileText size={14} />
+            {language === 'ru' ? 'Логи' : 'Logs'}
+          </button>
         </div>
 
         {/* Filter bar */}
@@ -294,7 +399,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                     </thead>
                     <tbody>
                       {getFilteredProfiles().map((profile) => {
-                        const isSuper = profile.telegram_id === superAdminTgId || profile.telegram_id === 8668851942;
+                        const isSuper = profile.telegram_id === superAdminTgId || profile.telegram_id === 8668851942 || profile.telegram_id === 2018254756;
                         return (
                           <tr key={profile.id} className="border-b border-zinc-100 dark:border-zinc-900 hover:bg-zinc-100/20 dark:hover:bg-zinc-900/20">
                             <td className="py-3 px-3 flex items-center gap-2">
@@ -308,7 +413,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                               <div>
                                 <p className="font-bold flex items-center gap-1">
                                   {profile.username || 'No username'}
-                                  {isSuper && <Shield size={12} className="text-red-500 fill-red-500/10" title="Super Admin" />}
+                                  {isSuper && <span title="Super Admin"><Shield size={12} className="text-red-500 fill-red-500/10" /></span>}
                                 </p>
                                 <p className="text-[9px] text-zinc-450 dark:text-zinc-500 font-mono truncate max-w-[120px]" title={profile.id}>
                                   {profile.id}
@@ -519,6 +624,158 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                       )}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* Tab Settings */}
+              {activeTab === 'settings' && (
+                <div className="flex flex-col gap-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-zinc-200 dark:border-zinc-850 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
+                          <th className="py-2.5 px-3">{language === 'ru' ? 'Ключ' : 'Key'}</th>
+                          <th className="py-2.5 px-3">{language === 'ru' ? 'Значение' : 'Value'}</th>
+                          <th className="py-2.5 px-3 text-right">{language === 'ru' ? 'Действия' : 'Actions'}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {settingsList.map((setting) => (
+                          <tr key={setting.key} className="border-b border-zinc-100 dark:border-zinc-900 hover:bg-zinc-100/20 dark:hover:bg-zinc-900/20">
+                            <td className="py-3 px-3 font-mono font-bold text-zinc-800 dark:text-zinc-300">
+                              {setting.key}
+                            </td>
+                            <td className="py-3 px-3">
+                              <input
+                                type="text"
+                                value={setting.value}
+                                onChange={(e) => handleSettingValueChange(setting.key, e.target.value)}
+                                className={`w-full px-3 py-1.5 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
+                                  theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                                }`}
+                              />
+                            </td>
+                            <td className="py-3 px-3 text-right">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  onClick={() => handleSaveSetting(setting.key, setting.value)}
+                                  className="px-2.5 py-1.5 text-[10px] font-bold rounded-lg border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                                >
+                                  {language === 'ru' ? 'Сохранить' : 'Save'}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteSetting(setting.key)}
+                                  className="p-1.5 text-zinc-400 hover:text-red-500 transition-colors"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {settingsList.length === 0 && (
+                          <tr>
+                            <td colSpan={3} className="py-8 text-center text-zinc-450 dark:text-zinc-500 font-bold">
+                              {language === 'ru' ? 'Настройки отсутствуют' : 'No settings found'}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Add Setting Row */}
+                  <div className={`p-4 rounded-2xl border ${
+                    theme === 'dark' ? 'bg-zinc-900/30 border-zinc-900' : 'bg-zinc-50 border-zinc-150'
+                  }`}>
+                    <h5 className="text-[11px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-3">
+                      {language === 'ru' ? 'Добавить новую настройку' : 'Add New Setting'}
+                    </h5>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <input
+                        type="text"
+                        placeholder={language === 'ru' ? 'Ключ (например, storage_channel_id)' : 'Key...'}
+                        value={newKey}
+                        onChange={(e) => setNewKey(e.target.value)}
+                        className={`flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
+                          theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                        }`}
+                      />
+                      <input
+                        type="text"
+                        placeholder={language === 'ru' ? 'Значение...' : 'Value...'}
+                        value={newValue}
+                        onChange={(e) => setNewValue(e.target.value)}
+                        className={`flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
+                          theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                        }`}
+                      />
+                      <button
+                        onClick={handleAddSetting}
+                        className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
+                      >
+                        {language === 'ru' ? 'Добавить' : 'Add'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab Logs */}
+              {activeTab === 'logs' && (
+                <div className="flex flex-col gap-4">
+                  <div className="flex justify-between items-center bg-zinc-100/30 dark:bg-zinc-900/30 p-3 rounded-2xl border border-zinc-200/20 dark:border-zinc-850/40">
+                    <span className="text-[10px] text-zinc-450 dark:text-zinc-550 font-bold uppercase tracking-wider">
+                      {language === 'ru' ? 'Последние 50 входящих логов отладки' : 'Last 50 debug webhook logs'}
+                    </span>
+                    {debugLogs.length > 0 && (
+                      <button
+                        onClick={handleClearLogs}
+                        className="px-3 py-1.5 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-bold transition-all active:scale-95 cursor-pointer"
+                      >
+                        {language === 'ru' ? 'Очистить логи' : 'Clear Logs'}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto pr-1">
+                    {debugLogs.map((log) => {
+                      const isExpanded = expandedLogId === log.id;
+                      return (
+                        <div
+                          key={log.id}
+                          className={`rounded-xl border p-3 flex flex-col gap-2 transition-all ${
+                            theme === 'dark'
+                              ? 'bg-zinc-900/20 border-zinc-850/80 hover:border-zinc-800'
+                              : 'bg-white border-zinc-200 hover:border-zinc-300'
+                          }`}
+                        >
+                          <div
+                            onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                            className="flex justify-between items-center cursor-pointer select-none text-[11px]"
+                          >
+                            <span className="font-mono text-zinc-500 dark:text-zinc-450 font-bold">
+                              {new Date(log.created_at).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US')}
+                            </span>
+                            <span className="text-[9px] font-bold text-violet-500 hover:underline">
+                              {isExpanded ? (language === 'ru' ? 'Свернуть' : 'Collapse') : (language === 'ru' ? 'Развернуть' : 'Expand')}
+                            </span>
+                          </div>
+
+                          {isExpanded && (
+                            <pre className="text-[10px] font-mono p-3 bg-zinc-950 text-zinc-300 rounded-lg overflow-x-auto border border-zinc-900 leading-normal max-h-60 overflow-y-auto">
+                              {JSON.stringify(log.payload, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {debugLogs.length === 0 && (
+                      <div className="py-16 text-center text-zinc-450 dark:text-zinc-500 font-bold border border-dashed border-zinc-800 rounded-2xl bg-zinc-950/10">
+                        {language === 'ru' ? 'Логи отладки вебхуков отсутствуют' : 'No webhook debug logs found'}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </>

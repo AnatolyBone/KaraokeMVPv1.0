@@ -6,10 +6,15 @@ export interface LyricsProviderResult {
   duration: number | null;
   plainLyrics: string | null;
   syncedLyrics: string | null;
-  provider: 'lrclib' | 'custom';
+  provider: 'lrclib' | 'custom' | 'supabase';
+  lines?: import('../types').LyricLine[];
+  videoStyle?: any;
+  audioStoragePath?: string | null;
+  coverStoragePath?: string | null;
 }
 
 import { lrclibProviderInstance } from './lrclibService';
+import { supabaseLyricsProviderInstance } from './supabaseLyricsService';
 
 export interface LyricsProvider {
   name: string;
@@ -22,7 +27,7 @@ export interface LyricsProvider {
   }): Promise<LyricsProviderResult | null>;
 }
 
-const registeredProviders: LyricsProvider[] = [lrclibProviderInstance];
+const registeredProviders: LyricsProvider[] = [supabaseLyricsProviderInstance, lrclibProviderInstance];
 
 export function registerLyricsProvider(provider: LyricsProvider) {
   registeredProviders.push(provider);
