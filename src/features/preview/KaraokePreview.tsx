@@ -6,7 +6,7 @@ import { localization } from '../../utils/localization';
 import { Play, Pause, Music, Maximize, Minimize, Globe } from 'lucide-react';
 
 export const KaraokePreview: React.FC = () => {
-  const { lines, theme, language } = useKaraokeStore();
+  const { lines, theme, language, coverColors } = useKaraokeStore();
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -178,13 +178,16 @@ export const KaraokePreview: React.FC = () => {
       <div
         ref={stageRef}
         className={isPlayerFullscreen
-          ? "fixed inset-0 z-50 p-6 flex flex-col justify-between bg-zinc-950 text-zinc-100 select-none"
+          ? "fixed inset-0 z-50 pt-[calc(2rem+env(safe-area-inset-top))] pb-[calc(2.5rem+env(safe-area-inset-bottom))] px-6 flex flex-col justify-between bg-zinc-950 text-zinc-100 select-none"
           : `relative overflow-hidden rounded-2xl border p-8 flex flex-col justify-between min-h-[340px] transition-all shadow-lg select-none ${
               theme === 'dark'
                 ? 'bg-zinc-950 border-zinc-800 text-zinc-100'
                 : 'bg-white border-zinc-200 text-zinc-900'
             }`
         }
+        style={isPlayerFullscreen && coverColors ? {
+          background: `radial-gradient(circle at 50% 30%, ${coverColors.primary} 0%, #09090b 80%)`
+        } : undefined}
       >
         {/* Gradient Masks to fade out top/bottom lines */}
         <div className={`absolute top-0 left-0 right-0 ${isPlayerFullscreen ? 'h-32' : 'h-16'} bg-gradient-to-b ${gradientColorClass} to-transparent pointer-events-none z-25`} />

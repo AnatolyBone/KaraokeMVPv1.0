@@ -10,7 +10,9 @@ interface DominantColors {
 export function extractDominantColors(coverUrl: string): Promise<DominantColors> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = 'Anonymous';
+    if (coverUrl && !coverUrl.startsWith('blob:') && !coverUrl.startsWith('data:')) {
+      img.crossOrigin = 'Anonymous';
+    }
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas');
