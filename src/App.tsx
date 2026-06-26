@@ -12,7 +12,7 @@ import { SidePanel } from './components/SidePanel';
 import { TimelineEditor } from './components/TimelineEditor';
 import { AuthSection } from './components/AuthSection';
 import { localization } from './utils/localization';
-import { Sun, Moon, Trash2, Type, Clock, Sparkles, Edit3, Zap, Settings, Shield, HelpCircle, ChevronLeft } from 'lucide-react';
+import { Sun, Moon, Trash2, Type, Clock, Edit3, Zap, Settings, Shield, HelpCircle, ChevronLeft } from 'lucide-react';
 import { clearAudioFromDB, clearCoverFromDB } from './utils/db';
 import { supabase } from './services/supabaseClient';
 import { AdminPanelModal } from './components/AdminPanelModal';
@@ -220,8 +220,32 @@ const App: React.FC = () => {
           {/* Top Row on Mobile: Logo and Mobile Controls */}
           <div className="flex items-center justify-between w-full md:w-auto">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-2xl bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-500 text-white shadow-lg shadow-violet-500/20 shrink-0 hover:rotate-6 transition-transform duration-300">
-                <Sparkles size={20} />
+              <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/60 dark:border-white/10 shadow-md dark:shadow-black/30 flex items-center justify-center shrink-0 hover:scale-105 transition-all duration-300 relative group overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-tr from-violet-600/15 via-fuchsia-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg" className="relative z-10">
+                  {/* Outer vinyl rings */}
+                  <circle cx="11" cy="13" r="9" stroke="url(#melodic-grad)" strokeWidth="1.5" className="opacity-45" />
+                  <circle cx="11" cy="13" r="6.2" stroke="url(#melodic-grad)" strokeWidth="1" strokeDasharray="3 2" className="opacity-60" />
+                  <circle cx="11" cy="13" r="2.5" stroke="url(#melodic-grad)" strokeWidth="1.2" className="opacity-80" />
+
+                  {/* Tonearm to note connection */}
+                  <path d="M18 4l-4 2" stroke="url(#melodic-grad)" strokeWidth="1.8" strokeLinecap="round" />
+                  {/* Stem and flag */}
+                  <path d="M14 6v7.5" stroke="url(#melodic-grad)" strokeWidth="1.8" strokeLinecap="round" />
+                  <path d="M14 6c2-0.5 3 0.5 4.5 1.5" stroke="url(#melodic-grad)" strokeWidth="1.8" strokeLinecap="round" />
+                  {/* Note head (tilted ellipse for note style) */}
+                  <ellipse cx="11.5" cy="13.5" rx="2.5" ry="1.8" transform="rotate(-25 11.5 13.5)" fill="url(#melodic-grad)" />
+                  {/* Tiny needle tip pointing to record center */}
+                  <path d="M9.5 13.5l1.5-0.5" stroke="url(#melodic-grad)" strokeWidth="1" strokeLinecap="round" className="opacity-80" />
+
+                  <defs>
+                    <linearGradient id="melodic-grad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                      <stop stopColor="#a78bfa" />
+                      <stop offset="0.5" stopColor="#e879f9" />
+                      <stop offset="1" stopColor="#f43f5e" />
+                    </linearGradient>
+                  </defs>
+                </svg>
               </div>
               <div className="min-w-0">
                 <h1 className="text-base font-extrabold tracking-tight sm:text-lg truncate">
