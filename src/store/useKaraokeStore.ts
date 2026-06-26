@@ -142,6 +142,10 @@ interface KaraokeState {
     coverFile?: File;
   }) => Promise<{ success: boolean; error?: string }>;
   cacheLrcLibTrack: (track: any) => Promise<void>;
+  donationUrl: string;
+  dailyPublishLimitFree: number;
+  dailyPublishLimitPro: number;
+  fetchAppSettings: () => Promise<void>;
 
   toggleTheme: () => void;
   clearAll: () => void;
@@ -190,6 +194,9 @@ export const useKaraokeStore = create<KaraokeState>()(
       user: null,
       userProfile: null,
       syncing: false,
+      donationUrl: 'https://yoomoney.ru',
+      dailyPublishLimitFree: 5,
+      dailyPublishLimitPro: 100,
       
       bpm: null,
       beats: [],
@@ -267,6 +274,31 @@ export const useKaraokeStore = create<KaraokeState>()(
           }
         } catch (err) {
           console.error('Failed to fetch user profile:', err);
+        }
+      },
+      fetchAppSettings: async () => {
+        try {
+          const { data, error } = await supabase
+            .from('telegram_bot_settings')
+            .select('*');
+          if (error) throw error;
+          if (data && data.length > 0) {
+            const updates: any = {};
+            data.forEach((setting: any) => {
+              if (setting.key === 'donation_url') {
+                updates.donationUrl = setting.value;
+              } else if (setting.key === 'daily_publish_limit_free') {
+                const parsed = parseInt(setting.value, 10);
+                if (!isNaN(parsed)) updates.dailyPublishLimitFree = parsed;
+              } else if (setting.key === 'daily_publish_limit_pro') {
+                const parsed = parseInt(setting.value, 10);
+                if (!isNaN(parsed)) updates.dailyPublishLimitPro = parsed;
+              }
+            });
+            set(updates);
+          }
+        } catch (err) {
+          console.error('Failed to fetch app settings:', err);
         }
       },
       setSyncing: (syncing) => set({ syncing }),

@@ -6,7 +6,7 @@ import { AuthSection } from './AuthSection';
 import { localization } from '../utils/localization';
 
 export const SidePanel: React.FC = () => {
-  const { lines, step, theme, language, appMode, user } = useKaraokeStore();
+  const { lines, step, theme, language, appMode, user, donationUrl } = useKaraokeStore();
 
   const totalLines = lines.length;
   const timedLines = lines.filter((l) => l.time !== null).length;
@@ -178,9 +178,8 @@ export const SidePanel: React.FC = () => {
           </a>
 
 
-          {/* Donation / Support Button */}
           <a
-            href="https://yoomoney.ru"
+            href={donationUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 p-2.5 rounded-xl bg-gradient-to-r from-pink-500/10 to-violet-500/10 border border-pink-500/20 hover:border-pink-500/40 text-xs font-bold text-pink-600 dark:text-pink-400 transition-all hover:scale-[1.01]"

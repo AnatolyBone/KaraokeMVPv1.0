@@ -71,6 +71,9 @@ const App: React.FC = () => {
 
   // Попытка автоматического входа при наличии сохраненных кредов в localStorage
   useEffect(() => {
+    // Загружаем настройки приложения
+    useKaraokeStore.getState().fetchAppSettings();
+
     const attemptAutoLogin = async () => {
       if (!import.meta.env.VITE_SUPABASE_URL) return;
       try {

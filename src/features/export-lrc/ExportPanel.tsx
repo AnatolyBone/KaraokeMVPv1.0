@@ -6,6 +6,7 @@ import { FileDown, Copy, Check, AlertTriangle, Layers, Database, Upload, Loader2
 import { localization } from '../../utils/localization';
 import { loadAudioFromDB, loadCoverFromDB } from '../../utils/db';
 import { AuthSection } from '../../components/AuthSection';
+import { supabase } from '../../services/supabaseClient';
 
 type ExportFormat = 'lrc' | 'srt' | 'ass' | 'vtt';
 
@@ -19,8 +20,11 @@ export const ExportPanel: React.FC = () => {
     videoStyle,
     language,
     user,
+    userProfile,
     publishKaraokeTrack,
     trackMetadata,
+    dailyPublishLimitFree,
+    dailyPublishLimitPro,
   } = useKaraokeStore();
   const [format, setFormat] = useState<ExportFormat>('lrc');
   const dict = localization[language];
@@ -86,6 +90,37 @@ export const ExportPanel: React.FC = () => {
     setPubErrorMsg('');
 
     try {
+      if (user) {
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count, error: countErr } = await supabase
+          .from('published_karaoke')
+          .select('*', { count: 'exact', head: true })
+          .eq('publisher_id', user.id)
+          .gte('created_at', oneDayAgo);
+
+        if (countErr) {
+          console.error('Failed to check publish limit:', countErr);
+        } else {
+          const userRole = userProfile?.role || 'free';
+          const limit = userRole === 'admin' 
+            ? 99999 
+            : userRole === 'pro' 
+              ? dailyPublishLimitPro 
+              : dailyPublishLimitFree;
+
+          if (count !== null && count >= limit) {
+            setPublishStatus('error');
+            setPubErrorMsg(
+              language === 'ru'
+                ? `Превышен суточный лимит публикаций (${limit} в сутки) для вашего тарифа (${userRole === 'pro' ? 'PRO' : 'FREE'}).`
+                : `Daily publish limit exceeded (${limit} per day) for your tier (${userRole === 'pro' ? 'PRO' : 'FREE'}).`
+            );
+            setPublishing(false);
+            return;
+          }
+        }
+      }
+
       const audioFile = uploadAudio ? await loadAudioFromDB() : undefined;
       const coverFile = uploadCover ? await loadCoverFromDB() : undefined;
 
@@ -108,7 +143,7 @@ export const ExportPanel: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       setPublishStatus('error');
-      setPubErrorMsg(err.message || 'Error occurred');
+      setPubErrorMsg(err.message || 'Unknown error');
     } finally {
       setPublishing(false);
     }
