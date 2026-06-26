@@ -177,28 +177,6 @@ export const SidePanel: React.FC = () => {
             <span>{dict.supportTelegram}</span>
           </a>
 
-          {/* GitHub Issues Link */}
-          <a
-            href="https://github.com/AnatolyBone/KaraokeMVPv1.0/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2.5 p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:border-zinc-350 dark:hover:border-zinc-700 text-xs font-semibold transition-all hover:scale-[1.01] text-zinc-700 dark:text-zinc-300"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width="14"
-              height="14"
-              stroke="currentColor"
-              strokeWidth="2"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-zinc-500 dark:text-zinc-400"
-            >
-              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
-            </svg>
-            <span>{dict.supportGithub}</span>
-          </a>
 
           {/* Donation / Support Button */}
           <a
