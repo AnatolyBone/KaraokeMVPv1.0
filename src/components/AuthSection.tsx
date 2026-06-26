@@ -85,6 +85,7 @@ export const AuthSection: React.FC = () => {
       if (error) throw error;
 
       if (data.user) {
+        localStorage.setItem('karaoke_saved_credentials', JSON.stringify({ email, password }));
         setUser(data.user);
         useKaraokeStore.getState().syncProjects();
       }
@@ -197,6 +198,7 @@ export const AuthSection: React.FC = () => {
       if (error) throw error;
 
       if (data.user) {
+        localStorage.setItem('karaoke_saved_credentials', JSON.stringify({ email, password: pass }));
         setUser(data.user);
         useKaraokeStore.getState().syncProjects();
       }
@@ -251,6 +253,7 @@ export const AuthSection: React.FC = () => {
 
   const handleLogout = async () => {
     try {
+      localStorage.removeItem('karaoke_saved_credentials');
       if (import.meta.env.VITE_SUPABASE_URL) {
         await supabase.auth.signOut();
       }

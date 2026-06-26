@@ -69,6 +69,31 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Попытка автоматического входа при наличии сохраненных кредов в localStorage
+  useEffect(() => {
+    const attemptAutoLogin = async () => {
+      if (!import.meta.env.VITE_SUPABASE_URL) return;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          const saved = localStorage.getItem('karaoke_saved_credentials');
+          if (saved) {
+            const { email, password } = JSON.parse(saved);
+            const { error } = await supabase.auth.signInWithPassword({ email, password });
+            if (error) {
+              console.warn('Auto login failed (invalid credentials):', error.message);
+              localStorage.removeItem('karaoke_saved_credentials');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error during auto login restore:', err);
+        localStorage.removeItem('karaoke_saved_credentials');
+      }
+    };
+    attemptAutoLogin();
+  }, []);
+
   // Автоматический запуск обучения при первом посещении
   useEffect(() => {
     const hasSeen = localStorage.getItem('hasSeenTour');
