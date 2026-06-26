@@ -347,6 +347,7 @@ export const Waveform: React.FC = () => {
 
   return (
     <div
+      id="waveform-section"
       className={`rounded-2xl p-5 border shadow-sm transition-all ${
         theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
       }`}

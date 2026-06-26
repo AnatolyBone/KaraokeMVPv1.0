@@ -84,7 +84,7 @@ export const LyricsInput: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div id="lyrics-input-section" className="flex flex-col gap-6">
       <div
         className={`rounded-2xl p-6 border shadow-sm transition-all ${
           theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'

@@ -136,6 +136,8 @@ interface KaraokeState {
   clearAll: () => void;
   appMode: 'karaoke' | 'editor';
   setAppMode: (mode: 'karaoke' | 'editor') => void;
+  subMode: 'sync' | 'tune';
+  setSubMode: (subMode: 'sync' | 'tune') => void;
 }
 
 // Helper to split line text into initial WordTiming nodes
@@ -189,6 +191,7 @@ export const useKaraokeStore = create<KaraokeState>()(
       trackMetadata: null,
       recentProjects: [],
       appMode: typeof window !== 'undefined' && window.innerWidth < 768 ? 'karaoke' : 'editor',
+      subMode: 'sync',
 
       syllableMode: false,
       currentSyllableIndex: 0,
@@ -219,6 +222,7 @@ export const useKaraokeStore = create<KaraokeState>()(
 
       setStep: (step) => set({ step }),
       setAppMode: (appMode) => set({ appMode }),
+      setSubMode: (subMode) => set({ subMode }),
 
       setCover: (coverUrl) => set({ coverUrl }),
 
@@ -1001,6 +1005,7 @@ export const useKaraokeStore = create<KaraokeState>()(
           currentWordIndex: 0,
           isPlaying: false,
           timingMode: 'line',
+          subMode: 'sync',
           bpm: null,
           beats: [],
           snapToBeat: false,
@@ -1143,6 +1148,7 @@ export const useKaraokeStore = create<KaraokeState>()(
         language: state.language,
         recentProjects: state.recentProjects,
         syllableMode: state.syllableMode,
+        subMode: state.subMode,
       }),
       onRehydrateStorage: () => (state) => {
         if (state && state.lines && state.lines.length > 0) {

@@ -265,6 +265,7 @@ export const AuthSection: React.FC = () => {
 
   return (
     <div
+      id="auth-section"
       className={`rounded-2xl p-5 border shadow-sm transition-all mb-4 ${
         theme === 'dark'
           ? 'bg-zinc-950/80 border-zinc-800/80 text-zinc-100'

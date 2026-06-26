@@ -173,7 +173,7 @@ export const KaraokePreview: React.FC = () => {
   const gradientColorClass = theme === 'dark' || isPlayerFullscreen ? 'from-zinc-950' : 'from-white';
 
   return (
-    <div className="w-full flex flex-col gap-6">
+    <div id="karaoke-preview-section" className="w-full flex flex-col gap-6">
       {/* Karaoke Main Stage */}
       <div
         ref={stageRef}

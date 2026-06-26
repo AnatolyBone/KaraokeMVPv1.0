@@ -12,10 +12,11 @@ import { SidePanel } from './components/SidePanel';
 import { TimelineEditor } from './components/TimelineEditor';
 import { AuthSection } from './components/AuthSection';
 import { localization } from './utils/localization';
-import { Sun, Moon, Trash2, Type, Clock, Sparkles, Edit3, Zap, Settings, Shield } from 'lucide-react';
+import { Sun, Moon, Trash2, Type, Clock, Sparkles, Edit3, Zap, Settings, Shield, HelpCircle } from 'lucide-react';
 import { clearAudioFromDB, clearCoverFromDB } from './utils/db';
 import { supabase } from './services/supabaseClient';
 import { AdminPanelModal } from './components/AdminPanelModal';
+import { InteractiveTour } from './components/InteractiveTour';
 
 const App: React.FC = () => {
   const {
@@ -32,12 +33,12 @@ const App: React.FC = () => {
     appMode,
     setAppMode,
     user,
+    subMode,
+    setSubMode,
   } = useKaraokeStore();
 
   const [isAdminOpen, setIsAdminOpen] = useState(false);
-
-  // Локальное переключение режима внутри Шага 2 ('sync' | 'tune')
-  const [subMode, setSubMode] = useState<'sync' | 'tune'>('sync');
+  const [tourActive, setTourActive] = useState(false);
 
   const dict = localization[language];
 
@@ -65,6 +66,18 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
+  }, []);
+
+  // Автоматический запуск обучения при первом посещении
+  useEffect(() => {
+    const hasSeen = localStorage.getItem('hasSeenTour');
+    if (!hasSeen) {
+      const timer = setTimeout(() => {
+        setTourActive(true);
+        localStorage.setItem('hasSeenTour', 'true');
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   const rawText = useKaraokeStore((state) => state.rawText);
@@ -205,6 +218,18 @@ const App: React.FC = () => {
               </button>
 
               <button
+                onClick={() => setTourActive(true)}
+                className={`p-2 rounded-xl border active:scale-95 transition-all ${
+                  theme === 'dark'
+                    ? 'bg-zinc-950 border-zinc-800 text-zinc-400'
+                    : 'bg-white border-zinc-200 text-zinc-600'
+                }`}
+                title={dict.tourStartBtn}
+              >
+                <HelpCircle size={16} />
+              </button>
+
+              <button
                 onClick={handleClearAll}
                 className={`p-2 rounded-xl border text-red-500 active:scale-95 transition-all ${
                   theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'
@@ -218,7 +243,7 @@ const App: React.FC = () => {
 
           {/* Navigation Step Tabs (Desktop Only) */}
           {appMode === 'editor' && (
-            <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 shrink-0">
+            <nav id="editor-step-tabs" className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 shrink-0">
               <button
                 onClick={() => setStep('input')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
@@ -272,7 +297,7 @@ const App: React.FC = () => {
           {/* Bottom Row on Mobile (Desktop Right Column): Switchers & Desktop-only Controls */}
           <div className="flex items-center justify-between md:justify-end gap-2 w-full md:w-auto mt-0.5 md:mt-0">
             {/* Mode Switcher */}
-            <div className="flex-1 md:flex-none flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl">
+            <div id="app-mode-switcher" className="flex-1 md:flex-none flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl">
               <button
                 onClick={() => setAppMode('karaoke')}
                 className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 transition-all cursor-pointer ${
@@ -343,6 +368,18 @@ const App: React.FC = () => {
                 title={theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
               >
                 {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+
+              <button
+                onClick={() => setTourActive(true)}
+                className={`p-2 rounded-xl border hover:scale-105 transition-all ${
+                  theme === 'dark'
+                    ? 'bg-zinc-950 border-zinc-800 hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+                    : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650 hover:text-zinc-800'
+                }`}
+                title={dict.tourStartBtn}
+              >
+                <HelpCircle size={18} />
               </button>
 
               <button
@@ -479,7 +516,7 @@ const App: React.FC = () => {
 
               {/* Step 3 Content: Export & Encoding Panel */}
               {step === 'edit' && (
-                <div className="flex flex-col gap-6">
+                <div id="export-section" className="flex flex-col gap-6">
                   <div className="grid grid-cols-1 gap-6 items-stretch">
                     <div className="md:col-span-1">
                       <ExportPanel />
@@ -506,6 +543,8 @@ const App: React.FC = () => {
       </footer>
 
       <AdminPanelModal isOpen={isAdminOpen} onClose={() => setIsAdminOpen(false)} />
+
+      <InteractiveTour active={tourActive} onClose={() => setTourActive(false)} />
     </div>
   );
 };

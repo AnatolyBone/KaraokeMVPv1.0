@@ -99,7 +99,7 @@ export const LyricsTable: React.FC = () => {
   };
 
   return (
-    <div className="w-full flex flex-col gap-6">
+    <div id="lyrics-table-section" className="w-full flex flex-col gap-6">
       {/* Header, global shift panel and undo/redo history stack */}
       <div
         className={`rounded-2xl p-6 border shadow-sm transition-all ${

@@ -331,7 +331,7 @@ export const AudioLoader: React.FC = () => {
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto">
+    <div id="audio-loader-section" className="w-full max-w-2xl mx-auto">
       {isRestoring && (
         <div className="flex items-center justify-center p-6 text-violet-500 dark:text-violet-400">
           <RefreshCw className="animate-spin mr-2 h-5 w-5" />

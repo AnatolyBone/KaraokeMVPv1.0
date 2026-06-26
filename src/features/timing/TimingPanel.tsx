@@ -77,7 +77,7 @@ export const TimingPanel: React.FC = () => {
   const subsequentLine = currentIndex + 2 < lines.length ? lines[currentIndex + 2] : null;
 
   return (
-    <div className="w-full flex flex-col gap-6">
+    <div id="timing-panel-section" className="w-full flex flex-col gap-6">
       {/* Waveform Navigation Display */}
       <Waveform />
 
