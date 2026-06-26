@@ -119,6 +119,62 @@ async function sendTelegramMessage(chatId: number, text: string, botToken: strin
   }
 }
 
+// Автоматическая конфигурация бота (кнопка меню, команды, описание)
+async function configureBot(botToken: string) {
+  try {
+    // 1. Настройка кнопки меню (Меню Web App рядом с инпутом ввода текста)
+    const menuUrl = `https://api.telegram.org/bot${botToken}/setChatMenuButton`;
+    await fetch(menuUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        menu_button: {
+          type: 'web_app',
+          text: '🎤 Открыть',
+          web_app: {
+            url: 'https://karaoke-mv-pv1-0.vercel.app'
+          }
+        }
+      })
+    });
+
+    // 2. Настройка команд меню
+    const commandsUrl = `https://api.telegram.org/bot${botToken}/setMyCommands`;
+    await fetch(commandsUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commands: [
+          { command: 'start', description: 'Запустить плеер и авторизоваться' },
+          { command: 'help', description: 'Показать описание и справку' }
+        ]
+      })
+    });
+
+    // 3. Настройка текста приветственного экрана (Description)
+    const descUrl = `https://api.telegram.org/bot${botToken}/setMyDescription`;
+    await fetch(descUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: 'Добро пожаловать в Karaoke LRC Maker! 🎤\n\nЭтот бот используется для быстрого входа в один клик и мгновенного импорта музыки с телефона.\n\nПросто отправьте мне любой аудиофайл, и он сразу появится в вашем личном кабинете на сайте!'
+      })
+    });
+
+    // 4. Настройка короткого описания (Short Description)
+    const shortDescUrl = `https://api.telegram.org/bot${botToken}/setMyShortDescription`;
+    await fetch(shortDescUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        short_description: 'Создание профессиональных LRC караоке субтитров и видеороликов.'
+      })
+    });
+  } catch (err) {
+    console.error('Failed to auto-configure Telegram bot:', err);
+  }
+}
+
 Deno.serve(async (req) => {
   // CORS preflight
   if (req.method === 'OPTIONS') {
@@ -311,6 +367,8 @@ Deno.serve(async (req) => {
             .eq('file_id', finalFileId)
             .maybeSingle();
 
+          if (!checkError && existingShare) {
+            const trackLabel = artist && title ? `«${artist} — ${title}»` : `«${fileName}»`;
             await sendTelegramMessage(
               chatId,
               `🎵 *Этот трек уже был импортирован ранее!*\n*Название*: ${trackLabel}\n\nОн готов к работе и ждет вас в списке импорта из Telegram на сайте.\n🔗 https://karaoke-mv-pv1-0.vercel.app`,
@@ -352,6 +410,9 @@ Deno.serve(async (req) => {
     if (body && body.message && body.message.text) {
       const text = body.message.text;
       const chatId = body.message.chat.id;
+
+      // Запускаем автоматическую настройку бота в фоне
+      configureBot(botToken).catch((err) => console.error('Bot auto-config error:', err));
 
       if (text.startsWith('/start auth_')) {
         const sessionId = text.replace('/start auth_', '').trim();
