@@ -10,6 +10,7 @@ import { ExportPanel } from './features/export-lrc/ExportPanel';
 import { ExportVideoPanel } from './features/export-video/ExportVideoPanel';
 import { SidePanel } from './components/SidePanel';
 import { TimelineEditor } from './components/TimelineEditor';
+import { AuthSection } from './components/AuthSection';
 import { localization } from './utils/localization';
 import { Sun, Moon, Trash2, Type, Clock, Sparkles, Edit3, Zap, Settings, Shield } from 'lucide-react';
 import { clearAudioFromDB, clearCoverFromDB } from './utils/db';
@@ -30,6 +31,7 @@ const App: React.FC = () => {
     userProfile,
     appMode,
     setAppMode,
+    user,
   } = useKaraokeStore();
 
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -160,24 +162,63 @@ const App: React.FC = () => {
       <header className={`sticky top-0 z-40 border-b backdrop-blur-md transition-colors ${
         theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800/80' : 'bg-white/80 border-zinc-200/80'
       }`}>
-        <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md shadow-violet-500/20">
-              <Sparkles size={20} />
+        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          
+          {/* Top Row on Mobile: Logo and Mobile Controls */}
+          <div className="flex items-center justify-between w-full md:w-auto">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md shadow-violet-500/20 shrink-0">
+                <Sparkles size={20} />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-base font-extrabold tracking-tight sm:text-lg truncate">
+                  Karaoke <span className="text-violet-500 dark:text-violet-400">LRC Maker</span>
+                </h1>
+                <span className="text-[9.5px] text-zinc-400 dark:text-zinc-500 font-bold tracking-wider uppercase hidden xs:inline sm:block truncate">
+                  {dict.appName}
+                </span>
+              </div>
             </div>
-            <div>
-              <h1 className="text-base font-extrabold tracking-tight sm:text-lg">
-                Karaoke <span className="text-violet-500 dark:text-violet-400">LRC Maker</span>
-              </h1>
-              <span className="text-[9.5px] text-zinc-400 dark:text-zinc-500 font-bold tracking-wider uppercase">
-                {dict.appName}
-              </span>
+
+            {/* Mobile Actions: Theme, Clear & Admin */}
+            <div className="flex md:hidden items-center gap-1.5 shrink-0">
+              {userProfile?.role === 'admin' && (
+                <button
+                  onClick={() => setIsAdminOpen(true)}
+                  className="p-2 rounded-xl border bg-red-500/10 border-red-500/20 text-red-500 active:scale-95 transition-all"
+                  title={dict.adminButton}
+                >
+                  <Shield size={16} />
+                </button>
+              )}
+
+              <button
+                onClick={toggleTheme}
+                className={`p-2 rounded-xl border active:scale-95 transition-all ${
+                  theme === 'dark'
+                    ? 'bg-zinc-955 border-zinc-800 text-yellow-500'
+                    : 'bg-white border-zinc-200 text-zinc-600'
+                }`}
+                title={theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
+              >
+                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+
+              <button
+                onClick={handleClearAll}
+                className={`p-2 rounded-xl border text-red-500 active:scale-95 transition-all ${
+                  theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'
+                }`}
+                title="Очистить всё"
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
           </div>
 
-          {/* Navigation Step Tabs */}
+          {/* Navigation Step Tabs (Desktop Only) */}
           {appMode === 'editor' && (
-            <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-955 border border-zinc-200/30 dark:border-zinc-800/30">
+            <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-955 border border-zinc-200/30 dark:border-zinc-800/30 shrink-0">
               <button
                 onClick={() => setStep('input')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
@@ -228,13 +269,13 @@ const App: React.FC = () => {
             </nav>
           )}
 
-          {/* Utilities and localization toggler */}
-          <div className="flex items-center gap-2">
+          {/* Bottom Row on Mobile (Desktop Right Column): Switchers & Desktop-only Controls */}
+          <div className="flex items-center justify-between md:justify-end gap-2 w-full md:w-auto mt-0.5 md:mt-0">
             {/* Mode Switcher */}
-            <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl">
+            <div className="flex-1 md:flex-none flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl">
               <button
                 onClick={() => setAppMode('karaoke')}
-                className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
+                className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 transition-all cursor-pointer ${
                   appMode === 'karaoke'
                     ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
@@ -245,7 +286,7 @@ const App: React.FC = () => {
               </button>
               <button
                 onClick={() => setAppMode('editor')}
-                className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
+                className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 transition-all cursor-pointer ${
                   appMode === 'editor'
                     ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
@@ -256,61 +297,66 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-955 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl">
+            {/* Language Switcher */}
+            <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-955 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl shrink-0">
               <button
                 onClick={() => setLanguage('ru')}
-                className={`px-2 py-1 rounded-lg font-bold text-[10px] transition-all ${
+                className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] transition-all cursor-pointer ${
                   language === 'ru'
-                    ? 'bg-white dark:bg-zinc-900 text-violet-500'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
+                    : 'text-zinc-450 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                 }`}
               >
                 RU
               </button>
               <button
                 onClick={() => setLanguage('en')}
-                className={`px-2 py-1 rounded-lg font-bold text-[10px] transition-all ${
+                className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] transition-all cursor-pointer ${
                   language === 'en'
-                    ? 'bg-white dark:bg-zinc-900 text-violet-500'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
+                    : 'text-zinc-450 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                 }`}
               >
                 EN
               </button>
             </div>
 
-            {userProfile?.role === 'admin' && (
+            {/* Desktop Actions: Theme, Clear & Admin (Hidden on mobile) */}
+            <div className="hidden md:flex items-center gap-2 shrink-0">
+              {userProfile?.role === 'admin' && (
+                <button
+                  onClick={() => setIsAdminOpen(true)}
+                  className={`p-2 rounded-xl border hover:scale-105 transition-all bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-500`}
+                  title={dict.adminButton}
+                >
+                  <Shield size={18} />
+                </button>
+              )}
+
               <button
-                onClick={() => setIsAdminOpen(true)}
-                className={`p-2 rounded-xl border hover:scale-105 transition-all bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-500`}
-                title={dict.adminButton}
+                onClick={toggleTheme}
+                className={`p-2 rounded-xl border hover:scale-105 transition-all ${
+                  theme === 'dark'
+                    ? 'bg-zinc-955 border-zinc-800 hover:bg-zinc-900 text-yellow-500'
+                    : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600'
+                }`}
+                title={theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
               >
-                <Shield size={18} />
+                {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
               </button>
-            )}
 
-            <button
-              onClick={toggleTheme}
-              className={`p-2 rounded-xl border hover:scale-105 transition-all ${
-                theme === 'dark'
-                  ? 'bg-zinc-955 border-zinc-800 hover:bg-zinc-900 text-yellow-500'
-                  : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600'
-              }`}
-              title={theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
-            >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-
-            <button
-              onClick={handleClearAll}
-              className={`p-2 rounded-xl border hover:bg-red-500/10 text-red-500 hover:scale-105 transition-all ${
-                theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'
-              }`}
-              title="Очистить всё"
-            >
-              <Trash2 size={18} />
-            </button>
+              <button
+                onClick={handleClearAll}
+                className={`p-2 rounded-xl border hover:bg-red-500/10 text-red-500 hover:scale-105 transition-all ${
+                  theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'
+                }`}
+                title="Очистить всё"
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
           </div>
+
         </div>
       </header>
 
@@ -375,7 +421,10 @@ const App: React.FC = () => {
           <AudioLoader />
 
           {appMode === 'karaoke' ? (
-            <KaraokePreview />
+            <div className="flex flex-col gap-6">
+              {!user && <AuthSection />}
+              <KaraokePreview />
+            </div>
           ) : (
             <>
               {/* Step 1 Content: Lyrics Input */}

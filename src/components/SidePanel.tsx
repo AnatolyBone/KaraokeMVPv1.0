@@ -6,7 +6,7 @@ import { AuthSection } from './AuthSection';
 import { localization } from '../utils/localization';
 
 export const SidePanel: React.FC = () => {
-  const { lines, step, theme, language, appMode } = useKaraokeStore();
+  const { lines, step, theme, language, appMode, user } = useKaraokeStore();
 
   const totalLines = lines.length;
   const timedLines = lines.filter((l) => l.time !== null).length;
@@ -17,8 +17,8 @@ export const SidePanel: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-6 w-full lg:max-w-xs shrink-0">
-      {/* Auth Cabinet V2 */}
-      <AuthSection />
+      {/* Auth Cabinet V2 (скрыт здесь в режиме караоке для неавторизованных, так как отрендерен в центре страницы) */}
+      {!(appMode === 'karaoke' && !user) && <AuthSection />}
 
       {appMode === 'editor' && (
         <>

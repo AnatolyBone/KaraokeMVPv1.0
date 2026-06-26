@@ -42,70 +42,7 @@ export const AuthSection: React.FC = () => {
   // Проверка, запущены ли мы внутри Telegram WebApp
   const isTelegramWebApp = !!window.Telegram?.WebApp?.initData;
 
-  useEffect(() => {
-    // Настраиваем глобальный колбэк для виджета Telegram Login Widget (в обычном браузере)
-    window.onTelegramAuth = async (tgUser: any) => {
-      setErrorMsg(null);
-      try {
-        // Вызываем Edge Function для валидации подписи и получения кредов
-        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-telegram`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ authData: tgUser }),
-        });
 
-        if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error || 'Failed to authenticate');
-        }
-
-        const { email, password } = await response.json();
-
-        // Логинимся через стандартный Supabase client
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (error) throw error;
-        
-        if (data.user) {
-          setUser(data.user);
-          // Триггерим синхронизацию
-          useKaraokeStore.getState().syncProjects();
-        }
-      } catch (err: any) {
-        console.error('Telegram Auth Error:', err);
-        setErrorMsg(err.message || 'Ошибка входа через Telegram');
-      }
-    };
-
-    // Рендерим виджет Telegram в DOM, если мы не в WebApp и пользователь не авторизован
-    let timer: any;
-    if (!user && !isTelegramWebApp) {
-      timer = setTimeout(() => {
-        const botName = 'lrckaraoke_bot';
-        const container = document.getElementById('telegram-widget-container');
-        if (container && !container.hasChildNodes()) {
-          const script = document.createElement('script');
-          script.src = 'https://telegram.org/js/telegram-widget.js?22';
-          script.setAttribute('data-telegram-login', botName);
-          script.setAttribute('data-size', 'medium');
-          script.setAttribute('data-radius', '10');
-          script.setAttribute('data-onauth', 'onTelegramAuth(user)');
-          script.setAttribute('data-request-access', 'write');
-          script.async = true;
-          container.appendChild(script);
-        }
-      }, 1500); // Загружаем виджет через 1.5с после старта, чтобы не блокировать лоадер браузера
-    }
-
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
-  }, [user, isTelegramWebApp, setUser]);
 
   // Вход внутри Telegram WebApp (использует WebApp initData)
   const handleTelegramWebAppAuth = async () => {
@@ -414,24 +351,19 @@ export const AuthSection: React.FC = () => {
                 {language === 'ru' ? 'Войти как WebApp' : 'Login as WebApp'}
               </button>
             ) : (
-              <div className="flex flex-col gap-2.5 w-full">
-                {/* Вход через Telegram-приложение (Deep Link) */}
-                <button
-                  onClick={handleTelegramAppLinkAuth}
-                  disabled={waitingForTelegram}
-                  className="w-full py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 disabled:bg-sky-500/50 text-white font-bold text-[11px] flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 shadow-md shadow-sky-500/15 cursor-pointer"
-                >
-                  {waitingForTelegram ? (
-                    <RefreshCw size={13} className="animate-spin" />
-                  ) : (
-                    <Key size={13} />
-                  )}
-                  {waitingForTelegram ? dict.authWaitingForTelegram : dict.authTelegramAppLink}
-                </button>
-
-                {/* Иначе рендерим контейнер виджета Telegram */}
-                <div id="telegram-widget-container" className="flex justify-center min-h-[36px]" />
-              </div>
+              /* Вход через Telegram-приложение (Deep Link) */
+              <button
+                onClick={handleTelegramAppLinkAuth}
+                disabled={waitingForTelegram}
+                className="w-full py-3 rounded-xl bg-sky-500 hover:bg-sky-600 disabled:bg-sky-500/50 text-white font-bold text-xs flex items-center justify-center gap-2.5 transition-all hover:scale-[1.02] active:scale-95 shadow-md shadow-sky-500/15 cursor-pointer"
+              >
+                {waitingForTelegram ? (
+                  <RefreshCw size={14} className="animate-spin" />
+                ) : (
+                  <Key size={14} />
+                )}
+                {waitingForTelegram ? dict.authWaitingForTelegram : dict.authTelegramLogin}
+              </button>
             )}
 
             {/* Кнопка Mock-входа для локальной отладки */}
