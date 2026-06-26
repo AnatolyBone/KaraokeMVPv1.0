@@ -186,16 +186,12 @@ export const KaraokePreview: React.FC = () => {
             }`
         }
       >
-        {/* Gradient Masks to fade out top/bottom lines (only shown in normal scrolling view) */}
-        {!isPlayerFullscreen && (
-          <>
-            <div className={`absolute top-0 left-0 right-0 h-16 bg-gradient-to-b ${gradientColorClass} to-transparent pointer-events-none z-25`} />
-            <div className={`absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t ${gradientColorClass} to-transparent pointer-events-none z-25`} />
-          </>
-        )}
+        {/* Gradient Masks to fade out top/bottom lines */}
+        <div className={`absolute top-0 left-0 right-0 ${isPlayerFullscreen ? 'h-32' : 'h-16'} bg-gradient-to-b ${gradientColorClass} to-transparent pointer-events-none z-25`} />
+        <div className={`absolute bottom-0 left-0 right-0 ${isPlayerFullscreen ? 'h-32' : 'h-16'} bg-gradient-to-t ${gradientColorClass} to-transparent pointer-events-none z-25`} />
 
         {/* Header info */}
-        <div className="flex justify-between items-center text-xs font-medium text-zinc-400 dark:text-zinc-500 z-20">
+        <div className="flex justify-between items-center text-xs font-medium text-zinc-400 z-20">
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full bg-green-500 animate-ping" />
             {dict.livePlayerLabel}
@@ -204,7 +200,7 @@ export const KaraokePreview: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={toggleFullscreen}
-              className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-zinc-550/10 text-zinc-400 hover:text-zinc-250 transition-all text-[10px] font-bold uppercase tracking-wider cursor-pointer"
+              className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-zinc-550/10 text-zinc-450 hover:text-zinc-200 transition-all text-[10px] font-bold uppercase tracking-wider cursor-pointer"
               title={dict.fullscreenLabel}
             >
               {isPlayerFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
@@ -217,77 +213,21 @@ export const KaraokePreview: React.FC = () => {
           </div>
         </div>
 
-        {/* Lyrics Display Arena */}
-        {isPlayerFullscreen ? (
-          /* Fullscreen Layout: Large centered active line + upcoming line preview */
-          <div className="flex-1 flex flex-col justify-center items-center text-center my-auto w-full max-w-4xl mx-auto px-4 z-10 select-none">
-            {/* Active Line */}
-            <div className="min-h-[160px] flex flex-col items-center justify-center mb-8">
-              {currentLine ? (
-                <>
-                  {hasWordSync ? (
-                    <div className="flex flex-wrap items-center justify-center gap-x-3.5 gap-y-2.5 animate-fade-in">
-                      {currentLine.words.map((w, wIdx) => {
-                        const wordStart = w.time || currentLine.time || 0;
-                        const nextW = currentLine.words[wIdx + 1];
-                        const wordEnd = nextW?.time || (timedLines[activeIdxInTimed + 1]?.time || wordStart + 1);
-                        
-                        const isFullyReached = currentTime >= wordEnd;
-                        const isActiveNow = currentTime >= wordStart && currentTime < wordEnd;
-
-                        let wordStyle = 'text-zinc-650 dark:text-zinc-600';
-                        if (isFullyReached) {
-                          wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 font-extrabold drop-shadow-[0_2px_12px_rgba(168,85,247,0.45)]';
-                        } else if (isActiveNow) {
-                          wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-rose-400 font-extrabold scale-110';
-                        }
-
-                        return (
-                          <span key={w.id} className="text-3xl sm:text-5xl md:text-6xl transition-all duration-200">
-                            <span className={wordStyle}>{w.text}</span>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-3xl sm:text-5xl md:text-6xl font-extrabold leading-tight text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 drop-shadow-[0_2px_12px_rgba(168,85,247,0.3)]">
-                      {currentLine.text}
-                    </p>
-                  )}
-                  {currentLine.translation && (
-                    <p className="text-sm sm:text-2xl font-semibold italic text-violet-400/85 flex items-center gap-1.5 justify-center mt-3.5 leading-tight">
-                      <Globe size={18} className="shrink-0" />
-                      {currentLine.translation}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="text-2xl text-zinc-500 italic">🎤 ...</p>
-              )}
-            </div>
-
-            {/* Next Line Preview */}
-            {activeIdxInTimed + 1 < timedLines.length && (
-              <div className="min-h-[70px] opacity-40 hover:opacity-60 transition-opacity mt-4 border-t border-zinc-800/35 pt-4 w-full max-w-xl">
-                <p className="text-lg sm:text-2xl font-bold text-zinc-400">
-                  {timedLines[activeIdxInTimed + 1].text}
-                </p>
-                {timedLines[activeIdxInTimed + 1].translation && (
-                  <p className="text-xs sm:text-base italic text-zinc-500 mt-1">
-                    {timedLines[activeIdxInTimed + 1].translation}
-                  </p>
-                )}
-              </div>
-            )}
+        {/* Lyrics Display Arena (Unified Smooth Scrolling Drum) */}
+        {timedLines.length === 0 ? (
+          <div className="flex-1 flex flex-col justify-center items-center text-center my-auto w-full z-10 select-none">
+            <p className="text-xl sm:text-2xl text-zinc-500 italic">🎤 ...</p>
           </div>
         ) : (
-          /* Normal view: scrolling drum */
-          <div className="relative h-48 overflow-hidden flex items-center justify-center w-full z-10 my-auto">
+          <div 
+            className="relative overflow-hidden flex items-center justify-center w-full z-10 my-auto transition-all"
+            style={{ height: `${(isPlayerFullscreen ? 130 : 72) * 3}px` }}
+          >
             <div 
               className="absolute flex flex-col items-center w-full transition-transform duration-700 ease-[cubic-bezier(0.25,1,0.5,1)]"
               style={{ 
-                transform: `translateY(-${activeIdxInTimed * 72}px)`,
-                top: 'calc(50% - 36px)' // Центрирует активную строку
+                transform: `translateY(-${activeIdxInTimed * (isPlayerFullscreen ? 130 : 72)}px)`,
+                top: `calc(50% - ${(isPlayerFullscreen ? 130 : 72) / 2}px)`
               }}
             >
               {timedLines.map((line, idx) => {
@@ -296,26 +236,35 @@ export const KaraokePreview: React.FC = () => {
                 const isNext = idx === activeIdxInTimed + 1;
                 const isNextNext = idx === activeIdxInTimed + 2;
 
-                // Назначаем стили в зависимости от близости к центру
+                // Назначаем стили в зависимости от близости к центру и режима экрана
                 let lineClass = "opacity-0 scale-75 pointer-events-none";
                 if (isActive) {
-                  lineClass = "opacity-100 scale-105 z-20";
+                  lineClass = "opacity-100 scale-100 z-20";
                 } else if (isPrev) {
-                  lineClass = "opacity-25 scale-90 z-10 text-zinc-450";
+                  lineClass = isPlayerFullscreen 
+                    ? "opacity-25 scale-85 z-10 text-zinc-500" 
+                    : "opacity-25 scale-90 z-10 text-zinc-450";
                 } else if (isNext) {
-                  lineClass = "opacity-55 scale-95 z-10 text-zinc-300";
+                  lineClass = isPlayerFullscreen 
+                    ? "opacity-45 scale-90 z-10 text-zinc-400" 
+                    : "opacity-55 scale-95 z-10 text-zinc-300";
                 } else if (isNextNext) {
-                  lineClass = "opacity-15 scale-85 z-0 text-zinc-500";
+                  lineClass = isPlayerFullscreen 
+                    ? "opacity-0 scale-75 pointer-events-none" 
+                    : "opacity-15 scale-85 z-0 text-zinc-500";
                 }
+
+                const currentLineHeight = isPlayerFullscreen ? 130 : 72;
 
                 return (
                   <div
                     key={line.id}
-                    className={`h-[72px] flex flex-col items-center justify-center text-center px-4 w-full transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] ${lineClass}`}
+                    style={{ height: `${currentLineHeight}px` }}
+                    className={`flex flex-col items-center justify-center text-center px-4 w-full transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] ${lineClass}`}
                   >
                     {isActive && hasWordSync ? (
                       /* Пословный прогрессивный закрас в реальном времени */
-                      <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 max-w-2xl">
+                      <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5 max-w-4xl">
                         {line.words.map((w, wIdx) => {
                           const wordStart = w.time || line.time || 0;
                           const nextW = line.words[wIdx + 1];
@@ -324,25 +273,41 @@ export const KaraokePreview: React.FC = () => {
                           const isFullyReached = currentTime >= wordEnd;
                           const isActiveNow = currentTime >= wordStart && currentTime < wordEnd;
 
-                          let wordStyle = 'text-zinc-400/30 dark:text-zinc-650/35';
+                          let wordStyle = isPlayerFullscreen
+                            ? 'text-zinc-650 dark:text-zinc-600'
+                            : 'text-zinc-400/30 dark:text-zinc-650/35';
+
                           if (isFullyReached) {
-                            wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 font-extrabold drop-shadow-[0_1px_8px_rgba(168,85,247,0.3)]';
+                            wordStyle = isPlayerFullscreen
+                              ? 'text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 font-extrabold drop-shadow-[0_2px_12px_rgba(168,85,247,0.45)]'
+                              : 'text-transparent bg-clip-text bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 font-extrabold drop-shadow-[0_1px_8px_rgba(168,85,247,0.3)]';
                           } else if (isActiveNow) {
                             wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-rose-500 dark:from-pink-400 dark:to-rose-400 font-extrabold scale-110';
                           }
 
+                          const wordSizeClass = isPlayerFullscreen
+                            ? "text-2xl sm:text-4xl md:text-5xl"
+                            : "text-xl sm:text-3xl";
+
                           return (
-                            <span key={w.id} className={`text-xl sm:text-3xl transition-all duration-200 ${wordStyle}`}>
-                              {w.text}
+                            <span key={w.id} className={`${wordSizeClass} transition-all duration-200`}>
+                              <span className={wordStyle}>{w.text}</span>
                             </span>
                           );
                         })}
                       </div>
                     ) : (
                       /* Обычная строчка субтитров */
-                      <p className={`text-xl sm:text-3xl font-extrabold leading-tight ${
+                      <p className={`font-extrabold leading-tight ${
+                        isPlayerFullscreen
+                          ? 'text-2xl sm:text-4xl md:text-5xl'
+                          : 'text-xl sm:text-3xl'
+                      } ${
                         isActive 
-                          ? 'text-transparent bg-clip-text bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 drop-shadow-sm' 
+                          ? (isPlayerFullscreen
+                              ? 'text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 drop-shadow-[0_2px_12px_rgba(168,85,247,0.3)]'
+                              : 'text-transparent bg-clip-text bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 drop-shadow-sm'
+                            )
                           : ''
                       }`}>
                         {line.text}
@@ -351,8 +316,12 @@ export const KaraokePreview: React.FC = () => {
                     
                     {/* Перевод строки (отображается только у активной строки) */}
                     {isActive && line.translation && (
-                      <p className="text-xs sm:text-base font-semibold italic text-violet-500/85 dark:text-violet-400/85 flex items-center gap-1 justify-center mt-1 leading-tight">
-                        <Globe size={12} className="shrink-0" />
+                      <p className={`font-semibold italic text-violet-500/85 dark:text-violet-400/85 flex items-center gap-1.5 justify-center leading-tight ${
+                        isPlayerFullscreen
+                          ? 'text-sm sm:text-xl md:text-2xl mt-3.5'
+                          : 'text-xs sm:text-base mt-1'
+                      }`}>
+                        <Globe size={isPlayerFullscreen ? 18 : 12} className="shrink-0" />
                         {line.translation}
                       </p>
                     )}
