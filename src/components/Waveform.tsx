@@ -18,6 +18,18 @@ export const Waveform: React.FC = () => {
   } = useKaraokeStore();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const unplayedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const playedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  if (typeof document !== 'undefined') {
+    if (!unplayedCanvasRef.current) {
+      unplayedCanvasRef.current = document.createElement('canvas');
+    }
+    if (!playedCanvasRef.current) {
+      playedCanvasRef.current = document.createElement('canvas');
+    }
+  }
+
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [peaks, setPeaks] = useState<number[]>([]);
   const [isDecoding, setIsDecoding] = useState(false);
@@ -82,7 +94,94 @@ export const Waveform: React.FC = () => {
       .finally(() => setIsDecoding(false));
   }, [audioUrl]);
 
-  // Масштабируемая прокрутка и Спектрограмма частот
+  // 1. Отрисовка полной волны и спектрограммы на закадровые холсты при изменении пиков, темы или масштаба
+  useEffect(() => {
+    const mainCanvas = canvasRef.current;
+    if (!mainCanvas || peaks.length === 0) return;
+
+    const width = mainCanvas.width;
+    const height = mainCanvas.height;
+    const duration = audioBuffer ? audioBuffer.duration : 0;
+
+    const unplayedCanvas = unplayedCanvasRef.current;
+    const playedCanvas = playedCanvasRef.current;
+    if (!unplayedCanvas || !playedCanvas) return;
+
+    // Устанавливаем размеры закадровых холстов с учетом масштабирования
+    const zoomedWidth = width * zoom;
+    unplayedCanvas.width = zoomedWidth;
+    unplayedCanvas.height = height;
+    playedCanvas.width = zoomedWidth;
+    playedCanvas.height = height;
+
+    const uCtx = unplayedCanvas.getContext('2d');
+    const pCtx = playedCanvas.getContext('2d');
+    if (!uCtx || !pCtx) return;
+
+    uCtx.clearRect(0, 0, zoomedWidth, height);
+    pCtx.clearRect(0, 0, zoomedWidth, height);
+
+    const barWidth = zoomedWidth / peaks.length;
+    const waveHeight = height * 0.65;
+    const spectrogramHeight = height * 0.35;
+
+    // Отрисовка пиков и спектрограммы
+    peaks.forEach((peak, idx) => {
+      const x = idx * barWidth;
+      const barHeight = peak * (waveHeight * 0.95);
+      const y = (waveHeight - barHeight) / 2;
+
+      // 1. Отрисовка волновых пиков
+      // Непроигранная часть (Серая)
+      uCtx.fillStyle = theme === 'dark' ? 'rgba(63, 63, 70, 0.7)' : 'rgba(209, 213, 219, 0.7)';
+      uCtx.fillRect(x, y, barWidth - 0.5, barHeight);
+
+      // Проигранная часть (Фиолетовая)
+      pCtx.fillStyle = theme === 'dark' ? '#8b5cf6' : '#6d28d9';
+      pCtx.fillRect(x, y, barWidth - 0.5, barHeight);
+
+      // 2. Спектрограмма (статическая симуляция)
+      const ySpectrogram = waveHeight;
+      const step = spectrogramHeight / 4;
+
+      for (let s = 0; s < 4; s++) {
+        const freqIntensity = Math.sin((idx / peaks.length) * Math.PI * 8 + s) * peak * 0.8;
+        const opacity = Math.max(0.05, Math.min(1, freqIntensity));
+
+        const fillStyle = theme === 'dark'
+          ? `rgba(168, 85, 247, ${opacity * 0.8})`
+          : `rgba(109, 40, 217, ${opacity * 0.8})`;
+
+        uCtx.fillStyle = fillStyle;
+        uCtx.fillRect(x, ySpectrogram + (3 - s) * step, barWidth, step - 0.5);
+
+        pCtx.fillStyle = fillStyle;
+        pCtx.fillRect(x, ySpectrogram + (3 - s) * step, barWidth, step - 0.5);
+      }
+    });
+
+    // 3. Отрисовка линий BPM долей
+    if (beats.length > 0 && duration > 0) {
+      const drawBeats = (context: CanvasRenderingContext2D) => {
+        context.strokeStyle = theme === 'dark' ? 'rgba(244, 63, 94, 0.4)' : 'rgba(225, 29, 72, 0.4)';
+        context.lineWidth = 1;
+        context.setLineDash([4, 4]);
+        beats.forEach((beatTime) => {
+          const x = (beatTime / duration) * zoomedWidth;
+          context.beginPath();
+          context.moveTo(x, 0);
+          context.lineTo(x, waveHeight);
+          context.stroke();
+        });
+        context.setLineDash([]);
+      };
+
+      drawBeats(uCtx);
+      drawBeats(pCtx);
+    }
+  }, [peaks, audioBuffer, beats, theme, zoom]);
+
+  // 2. Быстрое копирование закадровых холстов на экран при изменении currentTime (до 60fps)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || peaks.length === 0) return;
@@ -90,84 +189,47 @@ export const Waveform: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const unplayedCanvas = unplayedCanvasRef.current;
+    const playedCanvas = playedCanvasRef.current;
+    if (!unplayedCanvas || !playedCanvas || unplayedCanvas.width === 0) return;
+
     const width = canvas.width;
     const height = canvas.height;
     const duration = audioBuffer ? audioBuffer.duration : 0;
+    const progress = duration > 0 ? currentTime / duration : 0;
+
+    const centerOffset = width / 2;
+    const scrollX = zoom > 1 ? (progress * width * zoom) - centerOffset : 0;
+    const playheadX = zoom > 1 ? centerOffset : progress * width;
+    const waveHeight = height * 0.65;
 
     ctx.clearRect(0, 0, width, height);
 
-    // Основная сетка: если масштаб больше 1x, прокручиваем холст за плеером
-    const progress = duration > 0 ? currentTime / duration : 0;
-    const centerOffset = width / 2;
-    
-    // Расчет смещения прокрутки холста при масштабе
-    const scrollX = zoom > 1 ? (progress * width * zoom) - centerOffset : 0;
+    if (zoom > 1) {
+      // Рисуем фоновую (непроигранную) волну со сдвигом прокрутки
+      ctx.drawImage(unplayedCanvas, -scrollX, 0);
 
-    // 1. Рисуем Волновые Пики (Waveform)
-    const barWidth = (width * zoom) / peaks.length;
-    
-    // Делим высоту холста: верхние 65% под волну, нижние 35% под спектрограмму
-    const waveHeight = height * 0.65;
-    const spectrogramHeight = height * 0.35;
+      // Накладываем проигранную волну слева от центра с обрезкой
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, centerOffset, height);
+      ctx.clip();
+      ctx.drawImage(playedCanvas, -scrollX, 0);
+      ctx.restore();
+    } else {
+      // Рисуем фоновую волну на весь экран
+      ctx.drawImage(unplayedCanvas, 0, 0);
 
-    peaks.forEach((peak, idx) => {
-      const x = (idx * barWidth) - scrollX;
-      
-      // Оптимизация: рисуем только видимые пики
-      if (x < -barWidth || x > width) return;
-
-      const barHeight = peak * (waveHeight * 0.95);
-      const y = (waveHeight - barHeight) / 2;
-
-      const peakTime = (idx / peaks.length) * duration;
-      const isPlayed = peakTime <= currentTime;
-
-      if (isPlayed) {
-        ctx.fillStyle = theme === 'dark' ? '#8b5cf6' : '#6d28d9';
-      } else {
-        ctx.fillStyle = theme === 'dark' ? 'rgba(63, 63, 70, 0.7)' : 'rgba(209, 213, 219, 0.7)';
-      }
-
-      ctx.fillRect(x, y, barWidth - 0.5, barHeight);
-
-      // 2. Отрисовка Спектрограммы частотного анализа (Частотный водопад / Spectrogram)
-      // Моделируем спектры из пиковых фаз
-      const ySpectrogram = waveHeight;
-      const step = spectrogramHeight / 4;
-      
-      for (let s = 0; s < 4; s++) {
-        // Низкие басовые частоты внизу, высокие согласные — вверху
-        const freqIntensity = Math.sin((idx / peaks.length) * Math.PI * 8 + s) * peak * 0.8;
-        const opacity = Math.max(0.05, Math.min(1, freqIntensity));
-        
-        ctx.fillStyle = theme === 'dark'
-          ? `rgba(168, 85, 247, ${opacity * 0.8})` // Розово-фиолетовый
-          : `rgba(109, 40, 217, ${opacity * 0.8})`;
-
-        ctx.fillRect(x, ySpectrogram + (3 - s) * step, barWidth, step - 0.5);
-      }
-    });
-
-    // 3. Отрисовка Сеток долей битов BPM
-    if (beats.length > 0 && duration > 0) {
-      ctx.strokeStyle = theme === 'dark' ? 'rgba(244, 63, 94, 0.4)' : 'rgba(225, 29, 72, 0.4)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      
-      beats.forEach((beatTime) => {
-        const x = ((beatTime / duration) * width * zoom) - scrollX;
-        if (x >= 0 && x <= width) {
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, waveHeight);
-          ctx.stroke();
-        }
-      });
-      ctx.setLineDash([]);
+      // Накладываем проигранную волну до линии плейхеда с обрезкой
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, playheadX, height);
+      ctx.clip();
+      ctx.drawImage(playedCanvas, 0, 0);
+      ctx.restore();
     }
 
-    // 4. Отрисовка Линии Плейхеда (Playhead)
-    const playheadX = zoom > 1 ? centerOffset : progress * width;
+    // 4. Линия плейхеда (Playhead)
     ctx.strokeStyle = theme === 'dark' ? '#f43f5e' : '#e11d74';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -182,13 +244,13 @@ export const Waveform: React.FC = () => {
     ctx.arc(playheadX, height, 4, 0, Math.PI * 2);
     ctx.fill();
 
-    // Текст-указатель для согласных
+    // Вспомогательный текст для согласных
     if (zoom > 2.5) {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
       ctx.font = '8px monospace';
       ctx.fillText('ВЫСОКИЕ СОГЛАСНЫЕ', 10, waveHeight - 5);
     }
-  }, [peaks, currentTime, audioBuffer, beats, theme, zoom]);
+  }, [peaks, currentTime, audioBuffer, zoom, theme]);
 
   // Клик по волне с учетом масштабирования (zoom)
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {

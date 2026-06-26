@@ -83,21 +83,28 @@ export const AuthSection: React.FC = () => {
     };
 
     // Рендерим виджет Telegram в DOM, если мы не в WebApp и пользователь не авторизован
+    let timer: any;
     if (!user && !isTelegramWebApp) {
-      const botName = 'lrckaraoke_bot';
-      const container = document.getElementById('telegram-widget-container');
-      if (container && !container.hasChildNodes()) {
-        const script = document.createElement('script');
-        script.src = 'https://telegram.org/js/telegram-widget.js?22';
-        script.setAttribute('data-telegram-login', botName);
-        script.setAttribute('data-size', 'medium');
-        script.setAttribute('data-radius', '10');
-        script.setAttribute('data-onauth', 'onTelegramAuth(user)');
-        script.setAttribute('data-request-access', 'write');
-        script.async = true;
-        container.appendChild(script);
-      }
+      timer = setTimeout(() => {
+        const botName = 'lrckaraoke_bot';
+        const container = document.getElementById('telegram-widget-container');
+        if (container && !container.hasChildNodes()) {
+          const script = document.createElement('script');
+          script.src = 'https://telegram.org/js/telegram-widget.js?22';
+          script.setAttribute('data-telegram-login', botName);
+          script.setAttribute('data-size', 'medium');
+          script.setAttribute('data-radius', '10');
+          script.setAttribute('data-onauth', 'onTelegramAuth(user)');
+          script.setAttribute('data-request-access', 'write');
+          script.async = true;
+          container.appendChild(script);
+        }
+      }, 1500); // Загружаем виджет через 1.5с после старта, чтобы не блокировать лоадер браузера
     }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [user, isTelegramWebApp, setUser]);
 
   // Вход внутри Telegram WebApp (использует WebApp initData)
