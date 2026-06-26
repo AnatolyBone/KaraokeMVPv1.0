@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useKaraokeStore } from '../store/useKaraokeStore';
 import { localization } from '../utils/localization';
 import { ArrowLeft, ArrowRight, X, HelpCircle, CheckCircle } from 'lucide-react';
@@ -20,10 +20,96 @@ interface TourStep {
 }
 
 export const InteractiveTour: React.FC<InteractiveTourProps> = ({ active, onClose }) => {
-  const { appMode, setAppMode, step, setStep, language, theme, setSubMode } = useKaraokeStore();
+  const { appMode, setAppMode, step, setStep, language, theme, setSubMode, rawText, lines } = useKaraokeStore();
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [isChangingStep, setIsChangingStep] = useState(false);
+
+  const backupRef = useRef<{
+    rawText: string;
+    lines: any[];
+    step: any;
+    subMode: any;
+    audioUrl: string | null;
+    audioFileName: string | null;
+    appMode: any;
+  } | null>(null);
+
+  // Backup current state and inject mock data when the tour starts
+  useEffect(() => {
+    if (active) {
+      const state = useKaraokeStore.getState();
+      backupRef.current = {
+        rawText: state.rawText,
+        lines: state.lines,
+        step: state.step,
+        subMode: state.subMode,
+        audioUrl: state.audioUrl,
+        audioFileName: state.audioFileName,
+        appMode: state.appMode,
+      };
+
+      // If the current project is empty, inject beautiful mock data for the duration of the tour
+      if (state.rawText.trim() === '' && state.lines.length === 0) {
+        const mockRawText = `Куплет 1\nПривет, это караоке!\nМы учимся размечать текст.\nВсе очень просто и быстро!`;
+        const mockLines = [
+          {
+            id: 'mock-l1',
+            text: 'Привет, это караоке!',
+            time: 2.0,
+            words: [
+              { id: 'mock-w1', text: 'Привет,', time: 2.0 },
+              { id: 'mock-w2', text: 'это', time: 2.5 },
+              { id: 'mock-w3', text: 'караоке!', time: 3.0 },
+            ],
+          },
+          {
+            id: 'mock-l2',
+            text: 'Мы учимся размечать текст.',
+            time: 5.0,
+            words: [
+              { id: 'mock-w4', text: 'Мы', time: 5.0 },
+              { id: 'mock-w5', text: 'учимся', time: 5.5 },
+              { id: 'mock-w6', text: 'размечать', time: 6.0 },
+              { id: 'mock-w7', text: 'текст.', time: 6.5 },
+            ],
+          },
+          {
+            id: 'mock-l3',
+            text: 'Все очень просто и быстро!',
+            time: 8.0,
+            words: [
+              { id: 'mock-w8', text: 'Все', time: 8.0 },
+              { id: 'mock-w9', text: 'очень', time: 8.5 },
+              { id: 'mock-w10', text: 'просто', time: 9.0 },
+              { id: 'mock-w11', text: 'и', time: 9.3 },
+              { id: 'mock-w12', text: 'быстро!', time: 9.6 },
+            ],
+          },
+        ];
+        useKaraokeStore.setState({
+          rawText: mockRawText,
+          lines: mockLines,
+        });
+      }
+    }
+
+    return () => {
+      // Restore original user state when the tour is deactivated or unmounted
+      if (backupRef.current) {
+        useKaraokeStore.setState({
+          rawText: backupRef.current.rawText,
+          lines: backupRef.current.lines,
+          step: backupRef.current.step,
+          subMode: backupRef.current.subMode,
+          audioUrl: backupRef.current.audioUrl,
+          audioFileName: backupRef.current.audioFileName,
+          appMode: backupRef.current.appMode,
+        });
+        backupRef.current = null;
+      }
+    };
+  }, [active]);
 
   const dict = localization[language];
 

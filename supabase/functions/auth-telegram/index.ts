@@ -107,6 +107,8 @@ async function sendTelegramMessage(chatId: number, text: string, botToken: strin
       body: JSON.stringify({
         chat_id: chatId,
         text: text,
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true,
       }),
     });
     if (!response.ok) {
@@ -309,11 +311,9 @@ Deno.serve(async (req) => {
             .eq('file_id', finalFileId)
             .maybeSingle();
 
-          if (!checkError && existingShare) {
-            const trackLabel = artist && title ? `«${artist} — ${title}»` : `«${fileName}»`;
             await sendTelegramMessage(
               chatId,
-              `🎵 Трек ${trackLabel} уже импортирован ранее и доступен на сайте!`,
+              `🎵 *Этот трек уже был импортирован ранее!*\n*Название*: ${trackLabel}\n\nОн готов к работе и ждет вас в списке импорта из Telegram на сайте.\n🔗 https://karaoke-mv-pv1-0.vercel.app`,
               botToken
             );
             return new Response('Audio already shared', { status: 200 });
@@ -341,7 +341,7 @@ Deno.serve(async (req) => {
         const trackLabel = artist && title ? `«${artist} — ${title}»` : `«${fileName}»`;
         await sendTelegramMessage(
           chatId,
-          `🎵 Трек ${trackLabel} успешно получен!\n\nОткройте сайт (https://karaoke-mv-pv1-0.vercel.app) и нажмите «Импортировать из Telegram» в разделе выбора музыки, чтобы загрузить его.`,
+          `🎵 *Трек успешно получен!*\n*Название*: ${trackLabel}\n\nТеперь вы можете загрузить его на сайте:\n1️⃣ Откройте [сайт](https://karaoke-mv-pv1-0.vercel.app).\n2️⃣ В разделе выбора музыки нажмите *«Импортировать из Telegram»*.\n3️⃣ Выберите этот трек в списке для мгновенной загрузки! 🚀`,
           botToken
         );
       }
@@ -437,14 +437,14 @@ Deno.serve(async (req) => {
           // Отправляем успешный статус пользователю в Telegram со ссылкой на сайт
           await sendTelegramMessage(
             chatId,
-            `🎉 Авторизация успешна!\n\nИмя: ${username}\nID: ${fromUser.id}\n\nВозвращайтесь на вкладку браузера или перейдите по ссылке:\nhttps://karaoke-mv-pv1-0.vercel.app`,
+            `🎉 *Авторизация успешна!*\n\nВы вошли в систему:\n👤 *Имя*: ${username}\n🆔 *ID*: ${fromUser.id}\n\n👉 Возвращайтесь на вкладку браузера или откройте сайт по ссылке ниже:\n🔗 https://karaoke-mv-pv1-0.vercel.app`,
             botToken
           );
         }
       } else {
         await sendTelegramMessage(
           chatId,
-          '👋 Привет! Этот бот используется для быстрого входа в один клик в Karaoke LRC Maker (https://karaoke-mv-pv1-0.vercel.app).\n\nПерейдите на сайт и нажмите «Войти через Telegram-приложение», чтобы авторизоваться.',
+          `👋 *Привет! Добро пожаловать в Karaoke LRC Maker!* 🎤\n\nЭтот бот помогает быстро авторизоваться на сайте и загружать треки напрямую из Telegram.\n\n⚡️ *Что умеет бот:*\n1️⃣ **Вход в 1 клик**: Нажмите кнопку авторизации на сайте, и бот мгновенно свяжет ваш аккаунт.\n2️⃣ **Импорт музыки**: Просто отправьте мне любой аудиофайл (до 20 МБ), и он сразу появится в вашем личном кабинете на сайте без скачивания на телефон!\n\n🔗 *Открыть сайт*: https://karaoke-mv-pv1-0.vercel.app`,
           botToken
         );
       }
