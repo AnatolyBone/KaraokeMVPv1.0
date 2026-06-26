@@ -348,7 +348,7 @@ export const Waveform: React.FC = () => {
   return (
     <div
       className={`rounded-2xl p-5 border shadow-sm transition-all ${
-        theme === 'dark' ? 'bg-zinc-955 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+        theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
       }`}
     >
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4 border-b border-zinc-100 dark:border-zinc-900 pb-3">

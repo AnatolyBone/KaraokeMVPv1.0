@@ -196,7 +196,7 @@ const App: React.FC = () => {
                 onClick={toggleTheme}
                 className={`p-2 rounded-xl border active:scale-95 transition-all ${
                   theme === 'dark'
-                    ? 'bg-zinc-955 border-zinc-800 text-yellow-500'
+                    ? 'bg-zinc-950 border-zinc-800 text-yellow-500'
                     : 'bg-white border-zinc-200 text-zinc-600'
                 }`}
                 title={theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
@@ -218,13 +218,13 @@ const App: React.FC = () => {
 
           {/* Navigation Step Tabs (Desktop Only) */}
           {appMode === 'editor' && (
-            <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-955 border border-zinc-200/30 dark:border-zinc-800/30 shrink-0">
+            <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 shrink-0">
               <button
                 onClick={() => setStep('input')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   step === 'input'
                     ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-955 dark:hover:text-zinc-100'
+                    : 'text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-100'
                 }`}
               >
                 <Type size={14} />
@@ -242,7 +242,7 @@ const App: React.FC = () => {
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   step === 'timing'
                     ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-955 dark:hover:text-zinc-100'
+                    : 'text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-100'
                 }`}
               >
                 <Clock size={14} />
@@ -260,7 +260,7 @@ const App: React.FC = () => {
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                   step === 'edit'
                     ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-955 dark:hover:text-zinc-100'
+                    : 'text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-100'
                 }`}
               >
                 <Edit3 size={14} />
@@ -298,7 +298,7 @@ const App: React.FC = () => {
             </div>
 
             {/* Language Switcher */}
-            <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-955 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl shrink-0">
+            <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl shrink-0">
               <button
                 onClick={() => setLanguage('ru')}
                 className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] transition-all cursor-pointer ${
@@ -337,7 +337,7 @@ const App: React.FC = () => {
                 onClick={toggleTheme}
                 className={`p-2 rounded-xl border hover:scale-105 transition-all ${
                   theme === 'dark'
-                    ? 'bg-zinc-955 border-zinc-800 hover:bg-zinc-900 text-yellow-500'
+                    ? 'bg-zinc-950 border-zinc-800 hover:bg-zinc-900 text-yellow-500'
                     : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600'
                 }`}
                 title={theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
@@ -435,7 +435,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col gap-6">
                   
                   {/* Sub-mode switcher */}
-                  <div className="flex items-center justify-between p-1.5 rounded-2xl bg-zinc-100 dark:bg-zinc-955 border border-zinc-250/10 max-w-md mx-auto w-full">
+                  <div className="flex items-center justify-between p-1.5 rounded-2xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-250/10 max-w-md mx-auto w-full">
                     <button
                       onClick={() => setSubMode('sync')}
                       className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
@@ -498,7 +498,7 @@ const App: React.FC = () => {
 
       {/* Footer */}
       <footer className={`py-4 text-center text-[11px] border-t transition-colors ${
-        theme === 'dark' ? 'bg-zinc-955 border-zinc-800 text-zinc-500' : 'bg-zinc-100 border-zinc-200 text-zinc-400'
+        theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-500' : 'bg-zinc-100 border-zinc-200 text-zinc-400'
       }`}>
         <div className="max-w-6xl mx-auto px-4">
           <span>© {new Date().getFullYear()} Karaoke LRC Maker • {language === 'ru' ? 'Работает локально в вашем браузере без серверов' : 'Works locally in your browser without servers'}</span>

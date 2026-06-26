@@ -295,7 +295,7 @@ export const TimingPanel: React.FC = () => {
       {/* Interactive Playback Control Center */}
       <div
         className={`rounded-2xl p-6 border shadow-sm flex flex-col gap-5 ${
-          theme === 'dark' ? 'bg-zinc-955 border-zinc-800' : 'bg-white border-zinc-200'
+          theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'
         }`}
       >
         {/* Audio Scrubbing Bar */}

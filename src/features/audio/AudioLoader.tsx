@@ -402,7 +402,7 @@ export const AudioLoader: React.FC = () => {
 
             {showTgImport && user && (
               <div className={`rounded-2xl border p-4 text-left transition-all ${
-                theme === 'dark' ? 'bg-zinc-955 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
               }`}>
                 <h4 className="font-bold text-xs uppercase tracking-wider text-sky-500 mb-1">
                   {dict.audioTgImportTitle}

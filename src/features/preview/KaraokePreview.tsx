@@ -178,7 +178,7 @@ export const KaraokePreview: React.FC = () => {
       <div
         ref={stageRef}
         className={isPlayerFullscreen
-          ? "fixed inset-0 z-50 p-6 flex flex-col justify-between bg-zinc-955 text-zinc-100 select-none"
+          ? "fixed inset-0 z-50 p-6 flex flex-col justify-between bg-zinc-950 text-zinc-100 select-none"
           : `relative overflow-hidden rounded-2xl border p-8 flex flex-col justify-between min-h-[340px] transition-all shadow-lg select-none ${
               theme === 'dark'
                 ? 'bg-zinc-950 border-zinc-800 text-zinc-100'

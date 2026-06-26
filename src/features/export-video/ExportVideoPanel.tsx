@@ -710,7 +710,7 @@ export const ExportVideoPanel: React.FC = () => {
   return (
     <div
       className={`rounded-2xl p-6 border shadow-sm transition-all ${
-        theme === 'dark' ? 'bg-zinc-955 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+        theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
       }`}
     >
       <div className="flex items-center gap-2 mb-4 border-b border-zinc-200/10 pb-3">
