@@ -4,6 +4,8 @@ import { supabase } from '../services/supabaseClient';
 import { getStoragePublicUrl } from '../services/supabaseLyricsService';
 import { extractDominantColors } from '../utils/colors';
 import { Music, Play, Search, Heart, Loader2, Disc, Library } from 'lucide-react';
+import { lrclibProviderInstance } from '../services/lrclibService';
+import { parseLRC } from '../utils/lrc';
 
 
 export const KaraokeCatalog: React.FC = () => {
@@ -16,12 +18,102 @@ export const KaraokeCatalog: React.FC = () => {
     setCoverColors,
     updateVideoStyle,
     setCurrentProjectTitle,
+    cacheLrcLibTrack,
   } = useKaraokeStore();
 
   const [tracks, setTracks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
+
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  const handleSearch = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    try {
+      // 1. Поиск в опубликованных караоке по БД
+      const { data: pubs } = await supabase
+        .from('published_karaoke')
+        .select(`
+          id,
+          lines,
+          video_style,
+          audio_storage_path,
+          cover_storage_path,
+          likes_count,
+          songs (
+            id,
+            artist,
+            title,
+            album,
+            duration_seconds,
+            bpm
+          )
+        `);
+
+      const matchedPubs = (pubs || []).filter((p: any) => {
+        const artist = p.songs?.artist || '';
+        const title = p.songs?.title || '';
+        return artist.toLowerCase().includes(query.toLowerCase()) || title.toLowerCase().includes(query.toLowerCase());
+      });
+
+      // 2. Поиск в telegram_audio_shares
+      const { data: shares } = await supabase
+        .from('telegram_audio_shares')
+        .select('*')
+        .or(`artist.ilike.%${query}%,title.ilike.%${query}%,file_name.ilike.%${query}%`)
+        .limit(30);
+
+      // Объединяем результаты
+      const merged: any[] = [...matchedPubs.map((p: any) => ({ ...p, type: 'published' }))];
+
+      for (const share of (shares || [])) {
+        const alreadyExists = merged.some(p => 
+          p.songs?.artist?.toLowerCase() === share.artist?.toLowerCase() &&
+          p.songs?.title?.toLowerCase() === share.title?.toLowerCase()
+        );
+        if (!alreadyExists) {
+          merged.push({
+            id: share.id,
+            type: 'telegram_share',
+            audio_storage_path: null,
+            cover_storage_path: null,
+            likes_count: 0,
+            telegram_file_id: share.file_id,
+            songs: {
+              artist: share.artist || 'Unknown Artist',
+              title: share.title || share.file_name || 'Unknown Track',
+              album: null,
+              duration_seconds: share.duration,
+              bpm: null
+            }
+          });
+        }
+      }
+
+      setSearchResults(merged);
+    } catch (err) {
+      console.error('Failed to search database:', err);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    const delayDebounce = setTimeout(() => {
+      handleSearch(searchQuery);
+    }, 450);
+    return () => clearTimeout(delayDebounce);
+  }, [searchQuery]);
 
   const fetchCatalog = async () => {
     setLoading(true);
@@ -66,19 +158,63 @@ export const KaraokeCatalog: React.FC = () => {
     try {
       let audioUrl = getStoragePublicUrl('published_audio', track.audio_storage_path);
       const coverUrl = getStoragePublicUrl('published_covers', track.cover_storage_path);
+      let linesToUse = track.lines || [];
 
-      if (!audioUrl) {
-        // Поиск совпадения в telegram_audio_shares по артисту и названию
-        const { data: share } = await supabase
-          .from('telegram_audio_shares')
-          .select('file_id')
-          .ilike('artist', track.songs.artist)
-          .ilike('title', track.songs.title)
+      if (track.type === 'telegram_share') {
+        audioUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-telegram?action=download-audio&file_id=${track.telegram_file_id}`;
+        
+        // Проверяем наличие текста в нашей локальной опубликованной базе караоке по совпадению названия и исполнителя
+        const { data: matchedPub } = await supabase
+          .from('published_karaoke')
+          .select(`
+            lines,
+            video_style,
+            songs (
+              artist,
+              title
+            )
+          `)
+          .eq('songs.artist', track.songs.artist)
+          .eq('songs.title', track.songs.title)
           .limit(1)
           .maybeSingle();
 
-        if (share?.file_id) {
-          audioUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-telegram?action=download-audio&file_id=${share.file_id}`;
+        if (matchedPub?.lines) {
+          linesToUse = matchedPub.lines;
+          if (matchedPub.video_style) {
+            updateVideoStyle(matchedPub.video_style);
+          }
+        } else {
+          // Запрашиваем LRCLIB для получения текста
+          try {
+            const lrclibTrack = await lrclibProviderInstance.getExact({
+              artistName: track.songs.artist,
+              trackName: track.songs.title,
+              duration: track.songs.duration_seconds || undefined
+            });
+
+            if (lrclibTrack?.syncedLyrics) {
+              const parsed = parseLRC(lrclibTrack.syncedLyrics);
+              linesToUse = parsed || [];
+              
+              // Кэшируем трек в базу
+              await cacheLrcLibTrack(lrclibTrack);
+            } else if (lrclibTrack?.plainLyrics) {
+              const parsed = lrclibTrack.plainLyrics
+                .split('\n')
+                .map(line => line.trim())
+                .filter(Boolean)
+                .map(lineText => ({
+                  id: Math.random().toString(36).substring(2, 9),
+                  text: lineText,
+                  time: null,
+                  words: []
+                }));
+              linesToUse = parsed || [];
+            }
+          } catch (lrclibErr) {
+            console.error('Failed to get exact lyrics from LRCLIB:', lrclibErr);
+          }
         }
       }
 
@@ -91,7 +227,7 @@ export const KaraokeCatalog: React.FC = () => {
         );
 
         if (confirmLocal) {
-          setLines(track.lines || []);
+          setLines(linesToUse);
           updateVideoStyle(track.video_style || {});
           setCurrentProjectTitle(`${track.songs.artist} - ${track.songs.title}`);
           if (coverUrl) {
@@ -105,9 +241,25 @@ export const KaraokeCatalog: React.FC = () => {
         return;
       }
 
+      if (linesToUse.length === 0) {
+        const confirmCreate = window.confirm(
+          language === 'ru'
+            ? 'Для этого трека не найден текст песни. Хотите открыть его в редакторе и добавить текст вручную?'
+            : 'Lyrics not found for this track. Would you like to open it in the editor and add lyrics manually?'
+        );
+
+        if (confirmCreate) {
+          setAudio(audioUrl, `${track.songs.artist} - ${track.songs.title}.mp3`);
+          setCurrentProjectTitle(`${track.songs.artist} - ${track.songs.title}`);
+          setLines([]);
+          useKaraokeStore.setState({ step: 'input' });
+        }
+        return;
+      }
+
       // Загружаем облачный караоке-трек
       setAudio(audioUrl, `${track.songs.artist} - ${track.songs.title}.mp3`);
-      setLines(track.lines || []);
+      setLines(linesToUse);
       updateVideoStyle(track.video_style || {});
       setCurrentProjectTitle(`${track.songs.artist} - ${track.songs.title}`);
 
@@ -153,12 +305,6 @@ export const KaraokeCatalog: React.FC = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const filteredTracks = tracks.filter((t) => {
-    const artist = t.songs?.artist || '';
-    const title = t.songs?.title || '';
-    const search = searchQuery.toLowerCase();
-    return artist.toLowerCase().includes(search) || title.toLowerCase().includes(search);
-  });
 
   return (
     <div className="w-full flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
@@ -171,14 +317,18 @@ export const KaraokeCatalog: React.FC = () => {
           </h2>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
             {language === 'ru'
-              ? 'Пойте готовые караоке-треки, опубликованные сообществом'
-              : 'Sing ready-made karaoke songs published by the community'}
+              ? 'Пойте готовые караоке-треки из сообщества или Telegram'
+              : 'Sing ready-made karaoke tracks from the community or Telegram'}
           </p>
         </div>
 
         {/* Search input */}
         <div className="relative w-full md:max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={15} />
+          {searching ? (
+            <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 animate-spin" size={15} />
+          ) : (
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={15} />
+          )}
           <input
             type="text"
             value={searchQuery}
@@ -194,7 +344,7 @@ export const KaraokeCatalog: React.FC = () => {
           <Loader2 className="animate-spin text-violet-500" size={32} />
           <span className="text-xs font-semibold">{language === 'ru' ? 'Загрузка каталога...' : 'Loading catalog...'}</span>
         </div>
-      ) : filteredTracks.length === 0 ? (
+      ) : (searchQuery.trim() ? searchResults : tracks).length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-zinc-800 rounded-2xl bg-zinc-950/10 text-zinc-500 gap-2">
           <Disc size={36} className="stroke-[1.25] text-zinc-650" />
           <span className="text-xs font-medium">
@@ -205,8 +355,9 @@ export const KaraokeCatalog: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {filteredTracks.map((track) => {
-            const hasAudio = !!track.audio_storage_path;
+          {(searchQuery.trim() ? searchResults : tracks).map((track) => {
+            const isTelegramShare = track.type === 'telegram_share';
+            const hasAudio = !!track.audio_storage_path || isTelegramShare;
             const coverUrl = getStoragePublicUrl('published_covers', track.cover_storage_path);
 
             return (
@@ -215,7 +366,7 @@ export const KaraokeCatalog: React.FC = () => {
                 onClick={() => handleSelectTrack(track)}
                 className={`group relative rounded-2xl p-4 border transition-all duration-300 flex flex-col justify-between cursor-pointer hover:-translate-y-1 shadow-sm hover:shadow-violet-500/5 ${
                   theme === 'dark'
-                    ? 'bg-zinc-950/65 border-zinc-800/80 hover:border-zinc-700/80 hover:bg-zinc-950'
+                    ? 'bg-zinc-955/65 border-zinc-800/80 hover:border-zinc-700/80 hover:bg-zinc-950'
                     : 'bg-white border-zinc-250 hover:border-zinc-350 hover:bg-zinc-50/50'
                 }`}
               >
@@ -225,7 +376,7 @@ export const KaraokeCatalog: React.FC = () => {
                     {coverUrl ? (
                       <img src={coverUrl} alt="Cover" className="w-full h-full object-cover" />
                     ) : (
-                      <Music className="text-zinc-600" size={24} />
+                      <Music className="text-zinc-650" size={24} />
                     )}
 
                     {/* Play button overlay */}
@@ -243,13 +394,17 @@ export const KaraokeCatalog: React.FC = () => {
                       <h4 className="font-bold text-sm text-zinc-100 truncate group-hover:text-violet-400 transition-colors">
                         {track.songs.title}
                       </h4>
-                      {hasAudio && (
+                      {isTelegramShare ? (
                         <span className="shrink-0 text-[8px] font-extrabold px-1 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 uppercase tracking-wider">
-                          AUDIO
+                          TG AUDIO
                         </span>
-                      )}
+                      ) : hasAudio ? (
+                        <span className="shrink-0 text-[8px] font-extrabold px-1 rounded bg-emerald-500/10 text-emerald-450 border border-emerald-500/20 uppercase tracking-wider">
+                          KARAOKE
+                        </span>
+                      ) : null}
                     </div>
-                    <p className="text-xs text-zinc-450 dark:text-zinc-500 truncate mt-0.5">
+                    <p className="text-xs text-zinc-450 dark:text-zinc-550 truncate mt-0.5">
                       {track.songs.artist}
                     </p>
                     {track.songs.album && (
@@ -272,13 +427,15 @@ export const KaraokeCatalog: React.FC = () => {
                     )}
                   </div>
 
-                  <button
-                    onClick={(e) => handleLike(e, track.id, track.likes_count || 0)}
-                    className="flex items-center gap-1 hover:text-pink-500 transition-colors"
-                  >
-                    <Heart size={11} className="fill-current text-pink-500/20 group-hover:scale-110 transition-transform" />
-                    <span className="font-mono">{track.likes_count || 0}</span>
-                  </button>
+                  {!isTelegramShare && (
+                    <button
+                      onClick={(e) => handleLike(e, track.id, track.likes_count || 0)}
+                      className="flex items-center gap-1 hover:text-pink-500 transition-colors"
+                    >
+                      <Heart size={11} className="fill-current text-pink-500/20 group-hover:scale-110 transition-transform" />
+                      <span className="font-mono">{track.likes_count || 0}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );
