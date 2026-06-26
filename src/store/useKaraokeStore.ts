@@ -134,6 +134,8 @@ interface KaraokeState {
 
   toggleTheme: () => void;
   clearAll: () => void;
+  appMode: 'karaoke' | 'editor';
+  setAppMode: (mode: 'karaoke' | 'editor') => void;
 }
 
 // Helper to split line text into initial WordTiming nodes
@@ -186,6 +188,7 @@ export const useKaraokeStore = create<KaraokeState>()(
       language: 'ru',
       trackMetadata: null,
       recentProjects: [],
+      appMode: typeof window !== 'undefined' && window.innerWidth < 768 ? 'karaoke' : 'editor',
 
       syllableMode: false,
       currentSyllableIndex: 0,
@@ -215,6 +218,7 @@ export const useKaraokeStore = create<KaraokeState>()(
       historyIndex: -1,
 
       setStep: (step) => set({ step }),
+      setAppMode: (appMode) => set({ appMode }),
 
       setCover: (coverUrl) => set({ coverUrl }),
 

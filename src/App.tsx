@@ -28,6 +28,8 @@ const App: React.FC = () => {
     language,
     setLanguage,
     userProfile,
+    appMode,
+    setAppMode,
   } = useKaraokeStore();
 
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -174,59 +176,87 @@ const App: React.FC = () => {
           </div>
 
           {/* Navigation Step Tabs */}
-          <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-955 border border-zinc-200/30 dark:border-zinc-800/30">
-            <button
-              onClick={() => setStep('input')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                step === 'input'
-                  ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-955 dark:hover:text-zinc-100'
-              }`}
-            >
-              <Type size={14} />
-              {dict.inputStep}
-            </button>
+          {appMode === 'editor' && (
+            <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-955 border border-zinc-200/30 dark:border-zinc-800/30">
+              <button
+                onClick={() => setStep('input')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                  step === 'input'
+                    ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-955 dark:hover:text-zinc-100'
+                }`}
+              >
+                <Type size={14} />
+                {dict.inputStep}
+              </button>
 
-            <button
-              onClick={() => {
-                if (!isReadyForTiming) {
-                  alert(dict.exportWarning);
-                  return;
-                }
-                setStep('timing');
-              }}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                step === 'timing'
-                  ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-955 dark:hover:text-zinc-100'
-              }`}
-            >
-              <Clock size={14} />
-              {dict.timingStep}
-            </button>
+              <button
+                onClick={() => {
+                  if (!isReadyForTiming) {
+                    alert(dict.exportWarning);
+                    return;
+                  }
+                  setStep('timing');
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                  step === 'timing'
+                    ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-955 dark:hover:text-zinc-100'
+                }`}
+              >
+                <Clock size={14} />
+                {dict.timingStep}
+              </button>
 
-            <button
-              onClick={() => {
-                if (!isReadyForTiming) {
-                  alert(dict.exportWarning);
-                  return;
-                }
-                setStep('edit');
-              }}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                step === 'edit'
-                  ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-955 dark:hover:text-zinc-100'
-              }`}
-            >
-              <Edit3 size={14} />
-              {dict.editStep}
-            </button>
-          </nav>
+              <button
+                onClick={() => {
+                  if (!isReadyForTiming) {
+                    alert(dict.exportWarning);
+                    return;
+                  }
+                  setStep('edit');
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                  step === 'edit'
+                    ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-955 dark:hover:text-zinc-100'
+                }`}
+              >
+                <Edit3 size={14} />
+                {dict.editStep}
+              </button>
+            </nav>
+          )}
 
           {/* Utilities and localization toggler */}
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl">
+            {/* Mode Switcher */}
+            <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl">
+              <button
+                onClick={() => setAppMode('karaoke')}
+                className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
+                  appMode === 'karaoke'
+                    ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                }`}
+                title={dict.appModeKaraoke}
+              >
+                <span>{dict.appModeKaraoke}</span>
+              </button>
+              <button
+                onClick={() => setAppMode('editor')}
+                className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
+                  appMode === 'editor'
+                    ? 'bg-white dark:bg-zinc-900 text-violet-500 shadow-sm'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                }`}
+                title={dict.appModeEditor}
+              >
+                <span>{dict.appModeEditor}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-955 border border-zinc-200/30 dark:border-zinc-800/30 p-1 rounded-xl">
               <button
                 onClick={() => setLanguage('ru')}
                 className={`px-2 py-1 rounded-lg font-bold text-[10px] transition-all ${
@@ -285,55 +315,57 @@ const App: React.FC = () => {
       </header>
 
       {/* Mobile Navigation Steps */}
-      <div className="md:hidden w-full border-b border-zinc-200/30 dark:border-zinc-800/30 bg-zinc-100/50 dark:bg-zinc-950/50 p-2 flex gap-1 justify-around">
-        <button
-          onClick={() => setStep('input')}
-          className={`flex-1 py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
-            step === 'input'
-              ? 'bg-white dark:bg-zinc-900 text-violet-500 dark:text-violet-400 shadow-sm'
-              : 'text-zinc-400'
-          }`}
-        >
-          <Type size={14} />
-          {language === 'ru' ? 'Текст' : 'Lyrics'}
-        </button>
+      {appMode === 'editor' && (
+        <div className="md:hidden w-full border-b border-zinc-200/30 dark:border-zinc-800/30 bg-zinc-100/50 dark:bg-zinc-950/50 p-2 flex gap-1 justify-around">
+          <button
+            onClick={() => setStep('input')}
+            className={`flex-1 py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
+              step === 'input'
+                ? 'bg-white dark:bg-zinc-900 text-violet-500 dark:text-violet-400 shadow-sm'
+                : 'text-zinc-400'
+            }`}
+          >
+            <Type size={14} />
+            {language === 'ru' ? 'Текст' : 'Lyrics'}
+          </button>
 
-        <button
-          onClick={() => {
-            if (!isReadyForTiming) {
-              alert(dict.exportWarning);
-              return;
-            }
-            setStep('timing');
-          }}
-          className={`flex-1 py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
-            step === 'timing'
-              ? 'bg-white dark:bg-zinc-900 text-violet-500 dark:text-violet-400 shadow-sm'
-              : 'text-zinc-400'
-          }`}
-        >
-          <Clock size={14} />
-          {language === 'ru' ? 'Синхр.' : 'Sync'}
-        </button>
+          <button
+            onClick={() => {
+              if (!isReadyForTiming) {
+                alert(dict.exportWarning);
+                return;
+              }
+              setStep('timing');
+            }}
+            className={`flex-1 py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
+              step === 'timing'
+                ? 'bg-white dark:bg-zinc-900 text-violet-500 dark:text-violet-400 shadow-sm'
+                : 'text-zinc-400'
+            }`}
+          >
+            <Clock size={14} />
+            {language === 'ru' ? 'Синхр.' : 'Sync'}
+          </button>
 
-        <button
-          onClick={() => {
-            if (!isReadyForTiming) {
-              alert(dict.exportWarning);
-              return;
-            }
-            setStep('edit');
-          }}
-          className={`flex-1 py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
-            step === 'edit'
-              ? 'bg-white dark:bg-zinc-900 text-violet-500 dark:text-violet-400 shadow-sm'
-              : 'text-zinc-400'
-          }`}
-        >
-          <Edit3 size={14} />
-          {language === 'ru' ? 'Экспорт' : 'Export'}
-        </button>
-      </div>
+          <button
+            onClick={() => {
+              if (!isReadyForTiming) {
+                alert(dict.exportWarning);
+                return;
+              }
+              setStep('edit');
+            }}
+            className={`flex-1 py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
+              step === 'edit'
+                ? 'bg-white dark:bg-zinc-900 text-violet-500 dark:text-violet-400 shadow-sm'
+                : 'text-zinc-400'
+            }`}
+          >
+            <Edit3 size={14} />
+            {language === 'ru' ? 'Экспорт' : 'Export'}
+          </button>
+        </div>
+      )}
 
       {/* Main Content Section */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 flex flex-col lg:flex-row gap-6 items-start">
@@ -342,66 +374,72 @@ const App: React.FC = () => {
           {/* Audio Loader is shown on all steps */}
           <AudioLoader />
 
-          {/* Step 1 Content: Lyrics Input */}
-          {step === 'input' && <LyricsInput />}
+          {appMode === 'karaoke' ? (
+            <KaraokePreview />
+          ) : (
+            <>
+              {/* Step 1 Content: Lyrics Input */}
+              {step === 'input' && <LyricsInput />}
 
-          {/* Step 2 Content: Unified Workspace (Spacious sub-mode switcher) */}
-          {step === 'timing' && (
-            <div className="flex flex-col gap-6">
-              
-              {/* Sub-mode switcher */}
-              <div className="flex items-center justify-between p-1.5 rounded-2xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-250/10 max-w-md mx-auto w-full">
-                <button
-                  onClick={() => setSubMode('sync')}
-                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                    subMode === 'sync'
-                      ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-450 shadow-md scale-[1.02]'
-                      : 'text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  <Zap size={14} />
-                  {language === 'ru' ? '1. Запись таймингов' : '1. Timing Sync'}
-                </button>
-                
-                <button
-                  onClick={() => setSubMode('tune')}
-                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                    subMode === 'tune'
-                      ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-455 shadow-md scale-[1.02]'
-                      : 'text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  <Settings size={14} />
-                  {language === 'ru' ? '2. Точная подгонка' : '2. Fine-Tuning'}
-                </button>
-              </div>
+              {/* Step 2 Content: Unified Workspace (Spacious sub-mode switcher) */}
+              {step === 'timing' && (
+                <div className="flex flex-col gap-6">
+                  
+                  {/* Sub-mode switcher */}
+                  <div className="flex items-center justify-between p-1.5 rounded-2xl bg-zinc-100 dark:bg-zinc-955 border border-zinc-250/10 max-w-md mx-auto w-full">
+                    <button
+                      onClick={() => setSubMode('sync')}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                        subMode === 'sync'
+                          ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-450 shadow-md scale-[1.02]'
+                          : 'text-zinc-500 hover:text-zinc-350'
+                      }`}
+                    >
+                      <Zap size={14} />
+                      {language === 'ru' ? '1. Запись таймингов' : '1. Timing Sync'}
+                    </button>
+                    
+                    <button
+                      onClick={() => setSubMode('tune')}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                        subMode === 'tune'
+                          ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-455 shadow-md scale-[1.02]'
+                          : 'text-zinc-500 hover:text-zinc-350'
+                      }`}
+                    >
+                      <Settings size={14} />
+                      {language === 'ru' ? '2. Точная подгонка' : '2. Fine-Tuning'}
+                    </button>
+                  </div>
 
-              {/* Mode A: Timing Sync focuses strictly on recording and listening */}
-              {subMode === 'sync' ? (
-                <div className="flex flex-col gap-6 animate-fade-in">
-                  <TimingPanel />
-                  <KaraokePreview />
-                </div>
-              ) : (
-                /* Mode B: Fine Tuning focuses strictly on visual scaling and adjustments */
-                <div className="flex flex-col gap-6 animate-fade-in">
-                  <TimelineEditor />
-                  <LyricsTable />
+                  {/* Mode A: Timing Sync focuses strictly on recording and listening */}
+                  {subMode === 'sync' ? (
+                    <div className="flex flex-col gap-6 animate-fade-in">
+                      <TimingPanel />
+                      <KaraokePreview />
+                    </div>
+                  ) : (
+                    /* Mode B: Fine Tuning focuses strictly on visual scaling and adjustments */
+                    <div className="flex flex-col gap-6 animate-fade-in">
+                      <TimelineEditor />
+                      <LyricsTable />
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Step 3 Content: Export & Encoding Panel */}
-          {step === 'edit' && (
-            <div className="flex flex-col gap-6">
-              <div className="grid grid-cols-1 gap-6 items-stretch">
-                <div className="md:col-span-1">
-                  <ExportPanel />
+              {/* Step 3 Content: Export & Encoding Panel */}
+              {step === 'edit' && (
+                <div className="flex flex-col gap-6">
+                  <div className="grid grid-cols-1 gap-6 items-stretch">
+                    <div className="md:col-span-1">
+                      <ExportPanel />
+                    </div>
+                    {audioUrl && <div className="md:col-span-1"><ExportVideoPanel /></div>}
+                  </div>
                 </div>
-                {audioUrl && <div className="md:col-span-1"><ExportVideoPanel /></div>}
-              </div>
-            </div>
+              )}
+            </>
           )}
         </div>
 

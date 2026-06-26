@@ -10,6 +10,7 @@ export const KaraokePreview: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSimulatedFullscreen, setIsSimulatedFullscreen] = useState(false);
   
   const listRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -45,11 +46,33 @@ export const KaraokePreview: React.FC = () => {
   // Listen for fullscreen changes
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      setIsFullscreen(!!document.fullscreenElement || !!(document as any).webkitFullscreenElement);
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
   }, []);
+
+  // Listen for simulated fullscreen Escape exit
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsSimulatedFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Reset simulated fullscreen when native fullscreen starts
+  useEffect(() => {
+    if (isFullscreen) {
+      setIsSimulatedFullscreen(false);
+    }
+  }, [isFullscreen]);
 
   // Сортируем и фильтруем только тайминговые строки
   const timedLines = lines
@@ -112,32 +135,64 @@ export const KaraokePreview: React.FC = () => {
 
   const toggleFullscreen = () => {
     if (!stageRef.current) return;
-    if (!document.fullscreenElement) {
-      stageRef.current.requestFullscreen().catch((err) => console.warn('Fullscreen request failed:', err));
+    
+    // Check for native Fullscreen support (absent on iPhone Safari for divs)
+    const hasNativeFullscreen = !!stageRef.current.requestFullscreen || 
+                                !!(stageRef.current as any).webkitRequestFullscreen ||
+                                !!(stageRef.current as any).mozRequestFullScreen ||
+                                !!(stageRef.current as any).msRequestFullscreen;
+
+    if (hasNativeFullscreen) {
+      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+        const req = stageRef.current.requestFullscreen || 
+                    (stageRef.current as any).webkitRequestFullscreen ||
+                    (stageRef.current as any).mozRequestFullScreen ||
+                    (stageRef.current as any).msRequestFullscreen;
+        req.call(stageRef.current).catch((err) => {
+          console.warn('Native fullscreen request failed, falling back to simulated:', err);
+          setIsSimulatedFullscreen(true);
+        });
+      } else {
+        const exit = document.exitFullscreen || 
+                     (document as any).webkitExitFullscreen ||
+                     (document as any).mozCancelFullScreen ||
+                     (document as any).msExitFullscreen;
+        exit.call(document);
+        setIsSimulatedFullscreen(false);
+      }
     } else {
-      document.exitFullscreen();
+      // simulated fullscreen fallback for iOS Safari/iPhone
+      setIsSimulatedFullscreen(!isSimulatedFullscreen);
     }
   };
 
   const duration = audioRef.current ? audioRef.current.duration || 0 : 0;
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
-
   const hasWordSync = currentLine?.words && currentLine.words.some(w => w.time !== null);
+  const isPlayerFullscreen = isFullscreen || isSimulatedFullscreen;
+  const gradientColorClass = theme === 'dark' || isPlayerFullscreen ? 'from-zinc-950' : 'from-white';
 
   return (
     <div className="w-full flex flex-col gap-6">
       {/* Karaoke Main Stage */}
       <div
         ref={stageRef}
-        className={`relative overflow-hidden rounded-2xl border p-8 flex flex-col justify-between min-h-[340px] transition-all shadow-lg select-none ${
-          theme === 'dark' || isFullscreen
-            ? 'bg-zinc-950 border-zinc-800 text-zinc-100'
-            : 'bg-white border-zinc-200 text-zinc-900'
-        }`}
+        className={isPlayerFullscreen
+          ? "fixed inset-0 z-50 p-6 flex flex-col justify-between bg-zinc-955 text-zinc-100 select-none"
+          : `relative overflow-hidden rounded-2xl border p-8 flex flex-col justify-between min-h-[340px] transition-all shadow-lg select-none ${
+              theme === 'dark'
+                ? 'bg-zinc-950 border-zinc-800 text-zinc-100'
+                : 'bg-white border-zinc-200 text-zinc-900'
+            }`
+        }
       >
-        {/* Gradient Masks to fade out top/bottom lines */}
-        <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-zinc-950 to-transparent pointer-events-none z-25" />
-        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-zinc-950 to-transparent pointer-events-none z-25" />
+        {/* Gradient Masks to fade out top/bottom lines (only shown in normal scrolling view) */}
+        {!isPlayerFullscreen && (
+          <>
+            <div className={`absolute top-0 left-0 right-0 h-16 bg-gradient-to-b ${gradientColorClass} to-transparent pointer-events-none z-25`} />
+            <div className={`absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t ${gradientColorClass} to-transparent pointer-events-none z-25`} />
+          </>
+        )}
 
         {/* Header info */}
         <div className="flex justify-between items-center text-xs font-medium text-zinc-400 dark:text-zinc-500 z-20">
@@ -149,10 +204,10 @@ export const KaraokePreview: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={toggleFullscreen}
-              className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-zinc-500/10 text-zinc-400 hover:text-zinc-250 transition-all text-[10px] font-bold uppercase tracking-wider"
+              className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-zinc-550/10 text-zinc-400 hover:text-zinc-250 transition-all text-[10px] font-bold uppercase tracking-wider cursor-pointer"
               title={dict.fullscreenLabel}
             >
-              {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
+              {isPlayerFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
               <span className="hidden sm:inline">{dict.fullscreenLabel}</span>
             </button>
             
@@ -162,93 +217,157 @@ export const KaraokePreview: React.FC = () => {
           </div>
         </div>
 
-        {/* Аппаратно-ускоренная «барабанная» прокрутка субтитров */}
-        <div className="relative h-48 overflow-hidden flex items-center justify-center w-full z-10 my-auto">
-          
-          <div 
-            className="absolute flex flex-col items-center w-full transition-transform duration-700 ease-[cubic-bezier(0.25,1,0.5,1)]"
-            style={{ 
-              transform: `translateY(-${activeIdxInTimed * 72}px)`,
-              top: 'calc(50% - 36px)' // Центрирует активную строку
-            }}
-          >
-            {timedLines.map((line, idx) => {
-              const isActive = idx === activeIdxInTimed;
-              const isPrev = idx === activeIdxInTimed - 1;
-              const isNext = idx === activeIdxInTimed + 1;
-              const isNextNext = idx === activeIdxInTimed + 2;
-
-              // Назначаем стили в зависимости от близости к центру
-              let lineClass = "opacity-0 scale-75 pointer-events-none";
-              if (isActive) {
-                lineClass = "opacity-100 scale-105 z-20";
-              } else if (isPrev) {
-                lineClass = "opacity-25 scale-90 z-10 text-zinc-450";
-              } else if (isNext) {
-                lineClass = "opacity-55 scale-95 z-10 text-zinc-300";
-              } else if (isNextNext) {
-                lineClass = "opacity-15 scale-85 z-0 text-zinc-500";
-              }
-
-              return (
-                <div
-                  key={line.id}
-                  className={`h-[72px] flex flex-col items-center justify-center text-center px-4 w-full transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] ${lineClass}`}
-                >
-                  {isActive && hasWordSync ? (
-                    /* Пословный прогрессивный закрас в реальном времени */
-                    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 max-w-2xl">
-                      {line.words.map((w, wIdx) => {
-                        const wordStart = w.time || line.time || 0;
-                        const nextW = line.words[wIdx + 1];
-                        const wordEnd = nextW?.time || (timedLines[idx + 1]?.time || wordStart + 1);
+        {/* Lyrics Display Arena */}
+        {isPlayerFullscreen ? (
+          /* Fullscreen Layout: Large centered active line + upcoming line preview */
+          <div className="flex-1 flex flex-col justify-center items-center text-center my-auto w-full max-w-4xl mx-auto px-4 z-10 select-none">
+            {/* Active Line */}
+            <div className="min-h-[160px] flex flex-col items-center justify-center mb-8">
+              {currentLine ? (
+                <>
+                  {hasWordSync ? (
+                    <div className="flex flex-wrap items-center justify-center gap-x-3.5 gap-y-2.5 animate-fade-in">
+                      {currentLine.words.map((w, wIdx) => {
+                        const wordStart = w.time || currentLine.time || 0;
+                        const nextW = currentLine.words[wIdx + 1];
+                        const wordEnd = nextW?.time || (timedLines[activeIdxInTimed + 1]?.time || wordStart + 1);
                         
                         const isFullyReached = currentTime >= wordEnd;
                         const isActiveNow = currentTime >= wordStart && currentTime < wordEnd;
 
-                        let wordStyle = 'text-zinc-400/30 dark:text-zinc-650/35';
+                        let wordStyle = 'text-zinc-650 dark:text-zinc-600';
                         if (isFullyReached) {
-                          wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 font-extrabold drop-shadow-[0_1px_8px_rgba(168,85,247,0.3)]';
+                          wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 font-extrabold drop-shadow-[0_2px_12px_rgba(168,85,247,0.45)]';
                         } else if (isActiveNow) {
-                          wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-rose-500 dark:from-pink-400 dark:to-rose-400 font-extrabold scale-110';
+                          wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-rose-400 font-extrabold scale-110';
                         }
 
                         return (
-                          <span key={w.id} className={`text-xl sm:text-3xl transition-all duration-200 ${wordStyle}`}>
-                            {w.text}
+                          <span key={w.id} className="text-3xl sm:text-5xl md:text-6xl transition-all duration-200">
+                            <span className={wordStyle}>{w.text}</span>
                           </span>
                         );
                       })}
                     </div>
                   ) : (
-                    /* Обычная строчка субтитров */
-                    <p className={`text-xl sm:text-3xl font-extrabold leading-tight ${
-                      isActive 
-                        ? 'text-transparent bg-clip-text bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 drop-shadow-sm' 
-                        : ''
-                    }`}>
-                      {line.text}
+                    <p className="text-3xl sm:text-5xl md:text-6xl font-extrabold leading-tight text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 drop-shadow-[0_2px_12px_rgba(168,85,247,0.3)]">
+                      {currentLine.text}
                     </p>
                   )}
-                  
-                  {/* Перевод строки (отображается только у активной строки) */}
-                  {isActive && line.translation && (
-                    <p className="text-xs sm:text-base font-semibold italic text-violet-500/85 dark:text-violet-400/85 flex items-center gap-1 justify-center mt-1 leading-tight">
-                      <Globe size={12} className="shrink-0" />
-                      {line.translation}
+                  {currentLine.translation && (
+                    <p className="text-sm sm:text-2xl font-semibold italic text-violet-400/85 flex items-center gap-1.5 justify-center mt-3.5 leading-tight">
+                      <Globe size={18} className="shrink-0" />
+                      {currentLine.translation}
                     </p>
                   )}
-                </div>
-              );
-            })}
+                </>
+              ) : (
+                <p className="text-2xl text-zinc-500 italic">🎤 ...</p>
+              )}
+            </div>
+
+            {/* Next Line Preview */}
+            {activeIdxInTimed + 1 < timedLines.length && (
+              <div className="min-h-[70px] opacity-40 hover:opacity-60 transition-opacity mt-4 border-t border-zinc-800/35 pt-4 w-full max-w-xl">
+                <p className="text-lg sm:text-2xl font-bold text-zinc-400">
+                  {timedLines[activeIdxInTimed + 1].text}
+                </p>
+                {timedLines[activeIdxInTimed + 1].translation && (
+                  <p className="text-xs sm:text-base italic text-zinc-500 mt-1">
+                    {timedLines[activeIdxInTimed + 1].translation}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
-        </div>
+        ) : (
+          /* Normal view: scrolling drum */
+          <div className="relative h-48 overflow-hidden flex items-center justify-center w-full z-10 my-auto">
+            <div 
+              className="absolute flex flex-col items-center w-full transition-transform duration-700 ease-[cubic-bezier(0.25,1,0.5,1)]"
+              style={{ 
+                transform: `translateY(-${activeIdxInTimed * 72}px)`,
+                top: 'calc(50% - 36px)' // Центрирует активную строку
+              }}
+            >
+              {timedLines.map((line, idx) => {
+                const isActive = idx === activeIdxInTimed;
+                const isPrev = idx === activeIdxInTimed - 1;
+                const isNext = idx === activeIdxInTimed + 1;
+                const isNextNext = idx === activeIdxInTimed + 2;
+
+                // Назначаем стили в зависимости от близости к центру
+                let lineClass = "opacity-0 scale-75 pointer-events-none";
+                if (isActive) {
+                  lineClass = "opacity-100 scale-105 z-20";
+                } else if (isPrev) {
+                  lineClass = "opacity-25 scale-90 z-10 text-zinc-450";
+                } else if (isNext) {
+                  lineClass = "opacity-55 scale-95 z-10 text-zinc-300";
+                } else if (isNextNext) {
+                  lineClass = "opacity-15 scale-85 z-0 text-zinc-500";
+                }
+
+                return (
+                  <div
+                    key={line.id}
+                    className={`h-[72px] flex flex-col items-center justify-center text-center px-4 w-full transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] ${lineClass}`}
+                  >
+                    {isActive && hasWordSync ? (
+                      /* Пословный прогрессивный закрас в реальном времени */
+                      <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 max-w-2xl">
+                        {line.words.map((w, wIdx) => {
+                          const wordStart = w.time || line.time || 0;
+                          const nextW = line.words[wIdx + 1];
+                          const wordEnd = nextW?.time || (timedLines[idx + 1]?.time || wordStart + 1);
+                          
+                          const isFullyReached = currentTime >= wordEnd;
+                          const isActiveNow = currentTime >= wordStart && currentTime < wordEnd;
+
+                          let wordStyle = 'text-zinc-400/30 dark:text-zinc-650/35';
+                          if (isFullyReached) {
+                            wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 font-extrabold drop-shadow-[0_1px_8px_rgba(168,85,247,0.3)]';
+                          } else if (isActiveNow) {
+                            wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-rose-500 dark:from-pink-400 dark:to-rose-400 font-extrabold scale-110';
+                          }
+
+                          return (
+                            <span key={w.id} className={`text-xl sm:text-3xl transition-all duration-200 ${wordStyle}`}>
+                              {w.text}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      /* Обычная строчка субтитров */
+                      <p className={`text-xl sm:text-3xl font-extrabold leading-tight ${
+                        isActive 
+                          ? 'text-transparent bg-clip-text bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 drop-shadow-sm' 
+                          : ''
+                      }`}>
+                        {line.text}
+                      </p>
+                    )}
+                    
+                    {/* Перевод строки (отображается только у активной строки) */}
+                    {isActive && line.translation && (
+                      <p className="text-xs sm:text-base font-semibold italic text-violet-500/85 dark:text-violet-400/85 flex items-center gap-1 justify-center mt-1 leading-tight">
+                        <Globe size={12} className="shrink-0" />
+                        {line.translation}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Player Bar overlay */}
         <div className="z-20 pt-4 flex items-center gap-4">
           <button
             onClick={togglePlay}
-            className="p-2.5 rounded-xl bg-violet-600 text-white hover:bg-violet-700 active:scale-95 transition-all flex items-center justify-center shrink-0 shadow-md shadow-violet-600/15"
+            className="p-2.5 rounded-xl bg-violet-600 text-white hover:bg-violet-700 active:scale-95 transition-all flex items-center justify-center shrink-0 shadow-md shadow-violet-600/15 cursor-pointer"
           >
             {isPlaying ? <Pause size={18} /> : <Play size={18} />}
           </button>

@@ -152,6 +152,9 @@ export const localization = {
     audioTgImportLoading: 'Загрузка списка треков...',
     audioTgImportDownloading: 'Скачивание файла из Telegram...',
     audioTgImportError: 'Ошибка при получении треков.',
+    appModeLabel: 'Режим:',
+    appModeKaraoke: '🎤 Лайт',
+    appModeEditor: '⚙️ Про',
   },
   en: {
     appName: 'Karaoke LRC Maker',
@@ -306,5 +309,8 @@ export const localization = {
     audioTgImportLoading: 'Loading tracks...',
     audioTgImportDownloading: 'Downloading file from Telegram...',
     audioTgImportError: 'Error loading tracks.',
+    appModeLabel: 'Mode:',
+    appModeKaraoke: '🎤 Lite',
+    appModeEditor: '⚙️ Pro',
   }
 };
