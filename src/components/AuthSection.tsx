@@ -94,6 +94,13 @@ export const AuthSection: React.FC = () => {
     }
   };
 
+  // Автоматический бесшовный вход при запуске внутри Telegram WebApp
+  useEffect(() => {
+    if (isTelegramWebApp && !user) {
+      handleTelegramWebAppAuth();
+    }
+  }, [isTelegramWebApp, user]);
+
   const handleTelegramAppLinkAuth = async () => {
     setErrorMsg(null);
     setWaitingForTelegram(true);
