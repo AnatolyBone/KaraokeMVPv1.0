@@ -23,6 +23,7 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({ active, onClos
   const { appMode, setAppMode, step, setStep, language, theme, setSubMode } = useKaraokeStore();
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
+  const [isChangingStep, setIsChangingStep] = useState(false);
 
   const dict = localization[language];
 
@@ -114,11 +115,43 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({ active, onClos
     }
   }, [currentStepIndex, active]);
 
-  // Track highlighted DOM element bounds & scroll it into view
+  // Trigger morphing transition state on step index change
+  useEffect(() => {
+    setIsChangingStep(true);
+    const timer = setTimeout(() => {
+      setIsChangingStep(false);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [currentStepIndex]);
+
+  // 1. Scroll target element into view ONLY when currentStepIndex or active changes
+  useEffect(() => {
+    if (!active) return;
+    const currentStep = steps[currentStepIndex];
+    if (!currentStep || !currentStep.targetId) return;
+
+    // Small delay to ensure any store-triggered tab navigation has completed rendering
+    const scrollTimer = setTimeout(() => {
+      const el = document.getElementById(currentStep.targetId!);
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const isOffscreen = rect.top < 0 || rect.bottom > window.innerHeight;
+        if (isOffscreen) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }, 100);
+
+    return () => clearTimeout(scrollTimer);
+  }, [currentStepIndex, active]);
+
+  // 2. Track highlighted DOM element bounds efficiently
   useEffect(() => {
     if (!active) return;
 
-    const updatePosition = () => {
+    let animFrameId: number;
+
+    const updateBounds = () => {
       const currentStep = steps[currentStepIndex];
       if (!currentStep || !currentStep.targetId) {
         setTargetRect(null);
@@ -127,33 +160,37 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({ active, onClos
 
       const el = document.getElementById(currentStep.targetId);
       if (el) {
-        // Scroll target element into view smoothly if it's far
-        const rect = el.getBoundingClientRect();
-        const isOffscreen = rect.top < 0 || rect.bottom > window.innerHeight;
-        
-        if (isOffscreen) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-        
-        // Brief timeout for scroll transition to settle, then extract final bounds
-        const timer = setTimeout(() => {
-          setTargetRect(el.getBoundingClientRect());
-        }, isOffscreen ? 300 : 50);
-
-        return () => clearTimeout(timer);
+        setTargetRect(el.getBoundingClientRect());
       } else {
         setTargetRect(null);
       }
     };
 
-    updatePosition();
+    // Use requestAnimationFrame for scroll update to prevent layout thrashing
+    let scheduled = false;
+    const handleScrollOrResize = () => {
+      if (!scheduled) {
+        scheduled = true;
+        animFrameId = requestAnimationFrame(() => {
+          updateBounds();
+          scheduled = false;
+        });
+      }
+    };
 
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition);
+    // Delay initial capture slightly to let any scrollIntoView animations start/complete
+    const captureTimer = setTimeout(() => {
+      updateBounds();
+    }, 150);
+
+    window.addEventListener('resize', handleScrollOrResize);
+    window.addEventListener('scroll', handleScrollOrResize, { passive: true });
 
     return () => {
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition);
+      clearTimeout(captureTimer);
+      cancelAnimationFrame(animFrameId);
+      window.removeEventListener('resize', handleScrollOrResize);
+      window.removeEventListener('scroll', handleScrollOrResize);
     };
   }, [currentStepIndex, active, appMode, step]);
 
@@ -226,7 +263,7 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({ active, onClos
                   height={targetRect.height + 20}
                   rx={16}
                   fill="black"
-                  className="transition-all duration-300"
+                  className={isChangingStep ? 'transition-all duration-300 ease-out' : ''}
                 />
               )}
             </mask>
