@@ -266,15 +266,19 @@ export const AuthSection: React.FC = () => {
     try {
       // Попробуем анонимный вход в Supabase, если клиент настроен
       if (import.meta.env.VITE_SUPABASE_URL) {
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (!error && data.user) {
-          setUser(data.user);
-          useKaraokeStore.getState().syncProjects();
-          return;
+        try {
+          const { data, error } = await supabase.auth.signInAnonymously();
+          if (!error && data.user) {
+            setUser(data.user);
+            useKaraokeStore.getState().syncProjects();
+            return;
+          }
+        } catch (supabaseErr) {
+          console.warn('Supabase anonymous sign-in failed, falling back to local mock user:', supabaseErr);
         }
       }
 
-      // Фолбэк на локальный mock-профиль (если Supabase не настроен вовсе)
+      // Фолбэк на локальный mock-профиль (если Supabase не настроен вовсе или не доступен)
       const mockUser = {
         id: '00000000-0000-0000-0000-000000000000',
         email: 'mock_local_user@example.com',
