@@ -6,6 +6,7 @@ import { localization } from '../../utils/localization';
 import { clearTextWidthCache } from '../../utils/renderer/textCache';
 import { renderBackground } from '../../utils/renderer/renderBackground';
 import { RenderFrame } from '../../utils/renderer/types';
+import { extractDominantColors } from '../../utils/colors';
 import { FileVideo, Download, AlertCircle, RefreshCw, XCircle, CheckCircle2, Palette, Type, Eye, Film, Activity, ShieldAlert, LayoutGrid } from 'lucide-react';
 
 interface PreviewParticle {
@@ -32,6 +33,7 @@ export const ExportVideoPanel: React.FC = () => {
     updateVideoStyle,
     coverUrl,
     coverColors,
+    setCoverColors,
     language
   } = useKaraokeStore();
   
@@ -112,6 +114,16 @@ export const ExportVideoPanel: React.FC = () => {
   useEffect(() => {
     clearTextWidthCache();
   }, [videoStyle.preset, videoStyle.bgType, videoStyle.gradientPreset, quality]);
+
+  // Автоматически извлекаем цвета обложки при открытии панели экспорта,
+  // если coverUrl есть, а coverColors ещё не вычислены (например после перезагрузки страницы)
+  useEffect(() => {
+    if (coverUrl && !coverColors) {
+      extractDominantColors(coverUrl)
+        .then((palette) => setCoverColors(palette))
+        .catch(() => {/* silently ignore */});
+    }
+  }, [coverUrl, coverColors, setCoverColors]);
 
   // Профайлер FPS
   useEffect(() => {
@@ -792,6 +804,16 @@ export const ExportVideoPanel: React.FC = () => {
           <div className="space-y-4 border-b border-zinc-200/10 pb-5">
             <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 flex items-center gap-1.5 mb-3">
               <Palette size={14} className="text-violet-500" /> Настройки Субтитров и Фона
+              {coverColors && (
+                <span className="ml-auto flex items-center gap-1.5 text-[10px] font-semibold text-zinc-400 normal-case tracking-normal">
+                  <span
+                    className="w-3 h-3 rounded-full border border-white/20 shadow-sm flex-shrink-0"
+                    style={{ backgroundColor: coverColors.glow }}
+                    title={`Цвет обложки: ${coverColors.glow}`}
+                  />
+                  Палитра обложки активна
+                </span>
+              )}
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

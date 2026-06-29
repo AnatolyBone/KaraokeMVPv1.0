@@ -127,7 +127,47 @@ export function renderBackground(ctx: CanvasRenderingContext2D, frame: RenderFra
     ctx.drawImage(bgVideoEl, 0, 0, frame.width, frame.height);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
     ctx.fillRect(0, 0, frame.width, frame.height);
-    return;
+  } else {
+    backgroundLayerInstance.render(ctx, frame);
   }
-  backgroundLayerInstance.render(ctx, frame);
+
+  // Цветовой overlay от обложки — применяется поверх ЛЮБОГО типа фона (кроме cover-blur, у которого свой механизм)
+  // Добавляет мягкий тёплый/холодный оттенок в зависимости от палитры обложки
+  if (frame.coverColors && frame.styleOptions.bgType !== 'cover-blur') {
+    const { width, height, coverColors, pulseFactor } = frame;
+    const pulse = pulseFactor ?? 1;
+
+    // Верхний радиальный блик (primary color)
+    const topGrad = ctx.createRadialGradient(
+      width * 0.5, 0,
+      0,
+      width * 0.5, 0,
+      Math.min(width, height) * 0.7 * pulse
+    );
+    topGrad.addColorStop(0, hexToRgba(coverColors.primary, 0.28));
+    topGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = topGrad;
+    ctx.fillRect(0, 0, width, height);
+
+    // Нижний радиальный блик (secondary / glow color)
+    const btmGrad = ctx.createRadialGradient(
+      width * 0.5, height,
+      0,
+      width * 0.5, height,
+      Math.min(width, height) * 0.55 * pulse
+    );
+    btmGrad.addColorStop(0, hexToRgba(coverColors.glow, 0.14));
+    btmGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = btmGrad;
+    ctx.fillRect(0, 0, width, height);
+  }
 }
+
+/** Конвертирует hex-цвет #rrggbb в rgba() строку с заданной прозрачностью */
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16) || 0;
+  const g = parseInt(hex.slice(3, 5), 16) || 0;
+  const b = parseInt(hex.slice(5, 7), 16) || 0;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+

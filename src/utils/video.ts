@@ -390,13 +390,28 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
     let coverImg: HTMLImageElement | null = null;
 
     if (coverUrl && coverCtx) {
+      // Конвертируем blob: URL в data: URL через Canvas чтобы избежать проблем
+      // с отозванными blob URL во время длинного асинхронного экспорта
+      const resolvedCoverUrl = await (async () => {
+        if (!coverUrl.startsWith('blob:')) return coverUrl;
+        try {
+          const resp = await fetch(coverUrl);
+          const blob = await resp.blob();
+          return await new Promise<string>((res, rej) => {
+            const reader = new FileReader();
+            reader.onload = () => res(reader.result as string);
+            reader.onerror = rej;
+            reader.readAsDataURL(blob);
+          });
+        } catch {
+          console.warn('Cinema Engine: Failed to convert blob URL to data URL, using original.');
+          return coverUrl;
+        }
+      })();
+
       const img = new Image();
       coverImg = img;
-      
-      if (coverUrl && !coverUrl.startsWith('blob:')) {
-        img.crossOrigin = 'anonymous';
-      }
-      
+
       await new Promise<void>((resolve) => {
         img.onload = () => {
           if (!coverCtx || !img) {
@@ -409,7 +424,7 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
           coverCtx.clip();
           coverCtx.drawImage(img, 0, 0, coverCanvasSize, coverCanvasSize);
           coverCtx.restore();
-          
+
           coverCtx.strokeStyle = 'rgba(255,255,255,0.15)';
           coverCtx.lineWidth = 2;
           coverCtx.beginPath();
@@ -418,10 +433,14 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
           isCoverReady = true;
           resolve();
         };
-        img.onerror = () => resolve();
-        img.src = coverUrl;
+        img.onerror = () => {
+          console.warn('Cinema Engine: Cover image failed to load, proceeding without cover.');
+          resolve();
+        };
+        img.src = resolvedCoverUrl;
       });
     }
+
 
     // --- ШАГ 4: НАСТРОЙКА ДЕТЕРМИНИРОВАННЫХ ПОТОКОВ ---
     // 30 FPS = вдвое меньше кадров = вдвое быстрее; для музыкального видео разница незаметна
