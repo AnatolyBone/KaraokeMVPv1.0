@@ -588,12 +588,9 @@ async function exportVideoWebCodecs(
             if (performance.now() - waitStartTime > 30000) {
               throw new Error('VideoEncoder queue wait timed out (stuck queue).');
             }
-            // Используем yieldToMain (быстрый) для первых 3сек, затем реальный sleep если всё ещё не спало
-            if (performance.now() - waitStartTime < 3000) {
-              await yieldToMain();
-            } else {
-              await sleep(32);
-            }
+            // Всегда используем реальный sleep(15), чтобы дать браузеру и GPU-потоку
+            // время обработать очередь кадров (MessageChannel в цикле вызывает starvation)
+            await sleep(15);
           }
         }
 
