@@ -497,9 +497,13 @@ async function exportVideoWebCodecs(
 
     const fakeFft = new Uint8Array(64);
     
-    // Пре-аллоцируем буфер звука один раз, чтобы не создавать GC-давление в горячем цикле
-    const samplesPerFrame = Math.ceil(sampleRate / EXPORT_FPS) + 2;
-    const preallocatedPlanar = new Float32Array(samplesPerFrame * numChannels);
+    // Пре-аллоцируем буфер звука под один фиксированный пакет кодека (1024 для AAC, 960 для Opus)
+    // AAC строго требует 1024 сэмплов на фрейм, Opus — 960 (20мс при 48кГц)
+    const AUDIO_FRAME_SIZE = chosenAudioCodec === 'aac' ? 1024 : 960;
+    const audioFrameBuffer = new Float32Array(AUDIO_FRAME_SIZE * numChannels);
+    let audioBufferQueueLeft = new Float32Array(0);
+    let audioBufferQueueRight = new Float32Array(0);
+    let audioFramesEncodedCount = 0;
 
     const drawFrame = (time: number) => {
       ctx.imageSmoothingEnabled = true;
@@ -594,7 +598,7 @@ async function exportVideoWebCodecs(
           }
         }
 
-        // Б. Кодируем порцию PCM аудио, строго соответствующую длительности кадра (1/60 сек)
+        // Б. Добавляем новые сэмплы звука в очередь
         const targetSampleOffset = Math.min(
           Math.floor((exportFrame + 1) * FRAME_TIME * sampleRate),
           leftChannel.length
@@ -602,22 +606,41 @@ async function exportVideoWebCodecs(
         const currentChunkSize = targetSampleOffset - audioSampleOffset;
 
         if (currentChunkSize > 0) {
-          const leftSlice = leftChannel.subarray(audioSampleOffset, audioSampleOffset + currentChunkSize);
-          const rightSlice = rightChannel.subarray(audioSampleOffset, audioSampleOffset + currentChunkSize);
+          const newLeft = leftChannel.subarray(audioSampleOffset, audioSampleOffset + currentChunkSize);
+          
+          const nextQueueLeft = new Float32Array(audioBufferQueueLeft.length + newLeft.length);
+          nextQueueLeft.set(audioBufferQueueLeft, 0);
+          nextQueueLeft.set(newLeft, audioBufferQueueLeft.length);
+          audioBufferQueueLeft = nextQueueLeft;
 
-          // Используем пре-аллоцированный буфер вместо new Float32Array каждый кадр
-          const planarData = preallocatedPlanar.subarray(0, currentChunkSize * numChannels);
-          planarData.set(leftSlice, 0);
           if (numChannels > 1) {
-            planarData.set(rightSlice, currentChunkSize);
+            const newRight = rightChannel.subarray(audioSampleOffset, audioSampleOffset + currentChunkSize);
+            const nextQueueRight = new Float32Array(audioBufferQueueRight.length + newRight.length);
+            nextQueueRight.set(audioBufferQueueRight, 0);
+            nextQueueRight.set(newRight, audioBufferQueueRight.length);
+            audioBufferQueueRight = nextQueueRight;
           }
 
-          const audioTimestampUs = Math.round((audioSampleOffset / sampleRate) * 1_000_000);
+          audioSampleOffset += currentChunkSize;
+        }
+
+        // Отправляем пакеты по AUDIO_FRAME_SIZE сэмплов в кодек
+        while (audioBufferQueueLeft.length >= AUDIO_FRAME_SIZE && !isAborted) {
+          const leftSlice = audioBufferQueueLeft.subarray(0, AUDIO_FRAME_SIZE);
+          
+          const planarData = audioFrameBuffer;
+          planarData.set(leftSlice, 0);
+          if (numChannels > 1) {
+            const rightSlice = audioBufferQueueRight.subarray(0, AUDIO_FRAME_SIZE);
+            planarData.set(rightSlice, AUDIO_FRAME_SIZE);
+          }
+
+          const audioTimestampUs = Math.round((audioFramesEncodedCount * AUDIO_FRAME_SIZE / sampleRate) * 1_000_000);
 
           const audioData = new AudioData({
             format: 'f32-planar',
             sampleRate: sampleRate,
-            numberOfFrames: currentChunkSize,
+            numberOfFrames: AUDIO_FRAME_SIZE,
             numberOfChannels: numChannels,
             timestamp: audioTimestampUs,
             data: planarData,
@@ -626,7 +649,13 @@ async function exportVideoWebCodecs(
           audioEncoder!.encode(audioData);
           audioData.close();
 
-          audioSampleOffset += currentChunkSize;
+          audioFramesEncodedCount++;
+
+          // Удаляем отправленные сэмплы из очереди
+          audioBufferQueueLeft = audioBufferQueueLeft.slice(AUDIO_FRAME_SIZE);
+          if (numChannels > 1) {
+            audioBufferQueueRight = audioBufferQueueRight.slice(AUDIO_FRAME_SIZE);
+          }
         }
 
         onProgress(exportFrame / totalFrames, time);
@@ -656,6 +685,31 @@ async function exportVideoWebCodecs(
         videoEncoder!.close();
         audioEncoder!.close();
         return;
+      }
+
+      // Досылаем остатки аудио с заполнением тишиной (padding)
+      if (audioBufferQueueLeft.length > 0 && !isAborted) {
+        const planarData = audioFrameBuffer;
+        planarData.fill(0);
+        
+        planarData.set(audioBufferQueueLeft, 0);
+        if (numChannels > 1 && audioBufferQueueRight.length > 0) {
+          planarData.set(audioBufferQueueRight, AUDIO_FRAME_SIZE);
+        }
+
+        const audioTimestampUs = Math.round((audioFramesEncodedCount * AUDIO_FRAME_SIZE / sampleRate) * 1_000_000);
+
+        const audioData = new AudioData({
+          format: 'f32-planar',
+          sampleRate: sampleRate,
+          numberOfFrames: AUDIO_FRAME_SIZE,
+          numberOfChannels: numChannels,
+          timestamp: audioTimestampUs,
+          data: planarData,
+        });
+
+        audioEncoder!.encode(audioData);
+        audioData.close();
       }
 
       // --- ШАГ 6: ФИНАЛИЗАЦИЯ ОФФЛАЙН-ПОТОКОВ ---
