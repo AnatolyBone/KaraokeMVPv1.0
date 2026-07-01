@@ -50,7 +50,7 @@ export function calculateSubtitlesLayout(
   let transitionProgress = 0;
   let activeIdx = candidateIdx;
 
-  const transitionWindow = 0.15; // Окно плавного переката субтитров в секундах (было 0.7 — вызывало сдвиг строк раньше тайминга)
+  const transitionWindow = 0.4; // Окно плавного переката субтитров в секундах (было 0.7 — сдвигало слишком рано, 0.15 — дергалось, 0.4 — идеально плавно)
 
   if (candidateIdx === -1) {
     // Мы в самом начале трека (вступление)
