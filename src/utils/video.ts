@@ -73,28 +73,52 @@ export function exportVideo(options: ExportOptions): void {
     return;
   }
 
-  // Трёхуровневый каскад:
-  // Уровень 1: GPU (VideoToolbox/NVENC) — самый быстрый
+  // Четырехуровневый каскад:
+  // Уровень 1: GPU MP4 (H.264) — самый быстрый
   exportVideoWebCodecs(options, 'prefer-hardware').catch((hwErr) => {
-    console.warn('Cinema Engine: GPU encoder failed, trying CPU software encoder...', hwErr.message);
+    console.warn('Cinema Engine: GPU MP4 encoder failed, trying CPU software encoder...', hwErr.message);
     options.onWarning?.(
       options.language === 'ru'
-        ? `Сбой аппаратного ускорения: ${hwErr.message}. Пробуем программное кодирование...`
-        : `GPU acceleration failed: ${hwErr.message}. Trying software encoding...`
+        ? `Сбой аппаратного MP4: ${hwErr.message}. Пробуем программный MP4...`
+        : `GPU MP4 failed: ${hwErr.message}. Trying software MP4...`
     );
     options.onStatus?.('initializing');
 
-    // Уровень 2: CPU-софтвар (openh264/libvpx) — медленнее, но офлайн и без десинхронизации
+    // Уровень 2: CPU-софтвар MP4 (H.264)
     exportVideoWebCodecs(options, 'no-preference').catch((swErr) => {
-      console.warn('Cinema Engine: CPU encoder also failed. Falling back to real-time MediaRecorder.', swErr.message);
-      options.onWarning?.(
-        options.language === 'ru'
-          ? `Сбой офлайн-кодеков: ${swErr.message}. Переход на запись в реальном времени...`
-          : `Offline codecs failed: ${swErr.message}. Falling back to real-time recording...`
-      );
-
-      // Уровень 3: Резерв — реальное время
-      exportVideoMediaRecorder(options);
+      console.warn('Cinema Engine: CPU MP4 encoder also failed.', swErr.message);
+      
+      // Уровень 3: Если MP4 полностью упал, пробуем офлайн WebM (VP9) — у него стабильный софтверный кодек в Chrome
+      if (options.format === 'mp4') {
+        options.onWarning?.(
+          options.language === 'ru'
+            ? 'Сбой MP4 кодеков. Пробуем офлайн-экспорт в WebM...'
+            : 'MP4 codecs failed. Trying offline export in WebM...'
+        );
+        options.onStatus?.('initializing');
+        
+        const webmOptions: ExportOptions = {
+          ...options,
+          format: 'webm',
+        };
+        
+        exportVideoWebCodecs(webmOptions, 'no-preference').catch((webmErr) => {
+          console.warn('Cinema Engine: Offline WebM also failed. Falling back to real-time MediaRecorder.', webmErr.message);
+          options.onWarning?.(
+            options.language === 'ru'
+              ? `Сбой офлайн-кодеков. Переход на запись в реальном времени...`
+              : `Offline codecs failed. Falling back to real-time recording...`
+          );
+          exportVideoMediaRecorder(options);
+        });
+      } else {
+        options.onWarning?.(
+          options.language === 'ru'
+            ? `Сбой офлайн-кодеков. Переход на запись в реальном времени...`
+            : `Offline codecs failed. Falling back to real-time recording...`
+        );
+        exportVideoMediaRecorder(options);
+      }
     });
   });
 }
@@ -277,7 +301,6 @@ async function exportVideoWebCodecs(
           width: finalWidth,
           height: finalHeight,
           bitrate: targetBitrate,
-          bitrateMode: 'variable',
           framerate: 30,
           hardwareAcceleration: hwAccel,
         };
@@ -576,7 +599,11 @@ async function exportVideoWebCodecs(
         drawFrame(time);
 
         const timestampUs = Math.round(time * 1_000_000);
-        const videoFrame = new VideoFrame(canvas, { timestamp: timestampUs });
+        const durationUs = Math.round(FRAME_TIME * 1_000_000);
+        const videoFrame = new VideoFrame(canvas, { 
+          timestamp: timestampUs,
+          duration: durationUs 
+        });
 
         videoEncoder!.encode(videoFrame, { keyFrame: exportFrame % 60 === 0 });
         videoFrame.close();
