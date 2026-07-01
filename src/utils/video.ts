@@ -302,6 +302,7 @@ async function exportVideoWebCodecs(
           height: finalHeight,
           bitrate: targetBitrate,
           framerate: 30,
+          latencyMode: 'realtime',
           hardwareAcceleration: hwAccel,
         };
 
@@ -608,10 +609,10 @@ async function exportVideoWebCodecs(
         videoEncoder!.encode(videoFrame, { keyFrame: exportFrame % 30 === 0 });
         videoFrame.close();
 
-        // Бэкпресшн: держим размер очереди в разумных пределах (до 30 кадров), чтобы не перегружать память.
-        // Не используем искусственный таймаут, так как в фоновых вкладках setTimeout сильно троттлится.
-        if (videoEncoder!.encodeQueueSize > 30) {
-          while (videoEncoder!.encodeQueueSize > 10 && !isAborted) {
+        // Бэкпресшн: держим размер очереди в разумных пределах (до 120 кадров), чтобы не перегружать память.
+        // Дает кодировщику достаточный буфер, чтобы избежать взаимной блокировки (deadlock).
+        if (videoEncoder!.encodeQueueSize > 120) {
+          while (videoEncoder!.encodeQueueSize > 60 && !isAborted) {
             if (encoderError) throw encoderError;
             if ((videoEncoder?.state as string) === 'closed') {
               throw new Error('VideoEncoder was closed while waiting for queue to clear.');
