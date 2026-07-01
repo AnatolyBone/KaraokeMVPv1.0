@@ -677,9 +677,17 @@ async function exportVideoWebCodecs(
         onProgress(exportFrame / totalFrames, time);
         exportFrame++;
 
-        // Обязательный yield каждый кадр — даём браузеру и GPU-потоку обработать очередь.
-        // sleep(0) = настоящий setTimeout(0), не микрозадача. Это главное условие стабильности.
-        await sleep(0);
+        // Flush кодека каждые 30 кадров (на границе keyframe).
+        // Это ПРИНУДИТЕЛЬНО дренирует внутреннюю очередь H.264/VP9 кодера и
+        // заставляет его вызвать onChunk для всех накопленных кадров.
+        // Без flush() аппаратный кодек может буферизовать сотни кадров и никогда не отдать ни одного.
+        if (exportFrame % 30 === 0) {
+          await videoEncoder!.flush();
+          if (encoderError) throw encoderError;
+        } else {
+          // Между flush() даём браузеру один тик на обработку событий
+          await sleep(0);
+        }
 
         // Перфоманс лог каждые 150 кадров
         if (exportFrame % 150 === 0) {
@@ -690,6 +698,7 @@ async function exportVideoWebCodecs(
           console.log(`[Export] Frame ${exportFrame}/${totalFrames} | Speed: ${fps.toFixed(1)} fps | Encoder queue: ${qSize}`);
           lastPerfLog = now;
         }
+
       }
 
       if (isAborted) {
