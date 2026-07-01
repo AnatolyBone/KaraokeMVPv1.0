@@ -605,24 +605,13 @@ async function exportVideoWebCodecs(
           duration: durationUs 
         });
 
-        videoEncoder!.encode(videoFrame, { keyFrame: exportFrame % 60 === 0 });
+        videoEncoder!.encode(videoFrame, { keyFrame: exportFrame % 30 === 0 });
         videoFrame.close();
 
-        // Бэкпресшн: ждём пока энкодер освободит память (каждый кадр ~8MB при 1080p)
-        if (videoEncoder!.encodeQueueSize > 60) {
-          const waitStartTime = performance.now();
-          while (videoEncoder!.encodeQueueSize > 20 && !isAborted) {
-            if ((videoEncoder?.state as string) === 'closed') {
-              throw new Error('VideoEncoder was closed while waiting for queue to clear.');
-            }
-            if (encoderError) throw encoderError;
-            if (performance.now() - waitStartTime > 30000) {
-              throw new Error('VideoEncoder queue wait timed out (stuck queue).');
-            }
-            // Всегда используем реальный sleep(15), чтобы дать браузеру и GPU-потоку
-            // время обработать очередь кадров (MessageChannel в цикле вызывает starvation)
-            await sleep(15);
-          }
+        // Проверяем ошибку кодека после encode()
+        if (encoderError) throw encoderError;
+        if ((videoEncoder?.state as string) === 'closed') {
+          throw new Error('VideoEncoder was closed due to an internal error.');
         }
 
         // Б. Добавляем новые сэмплы звука в очередь
@@ -688,14 +677,9 @@ async function exportVideoWebCodecs(
         onProgress(exportFrame / totalFrames, time);
         exportFrame++;
 
-        // Освобождаем главный поток для браузера через реальный sleep(1) каждые 15 кадров.
-        // Это предотвращает зависание сетевого стека (ERR_HTTP2_PING_FAILED) и дает время GPU IPC
-        // обрабатывать кадры, а между ними делаем микро-йилд.
-        if (exportFrame % 15 === 0) {
-          await sleep(1);
-        } else if (exportFrame % 5 === 0) {
-          await yieldToMain();
-        }
+        // Обязательный yield каждый кадр — даём браузеру и GPU-потоку обработать очередь.
+        // sleep(0) = настоящий setTimeout(0), не микрозадача. Это главное условие стабильности.
+        await sleep(0);
 
         // Перфоманс лог каждые 150 кадров
         if (exportFrame % 150 === 0) {
