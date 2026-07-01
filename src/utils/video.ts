@@ -18,6 +18,9 @@ const yieldToMain = () => new Promise<void>(resolve => {
   channel.port2.postMessage(null);
 });
 
+// Реальный sleep через setTimeout — даёт GPU-кодеку время обработать очередь
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
 interface ExportOptions {
   lines: LyricLine[];
   audioElement: HTMLAudioElement;
@@ -34,6 +37,7 @@ interface ExportOptions {
   audioCtx?: AudioContext;
   signal?: AbortSignal;
   onProgress: (percent: number, secondsRecorded: number) => void;
+  onStatus?: (status: 'decoding' | 'initializing' | 'prewarming' | 'encoding' | 'recording') => void;
   onComplete: (blob: Blob) => void;
   onError: (error: Error) => void;
   quality?: 'low' | 'medium' | 'high' | 'ultra';
@@ -56,16 +60,26 @@ export function exportVideo(options: ExportOptions): void {
     typeof AudioData !== 'undefined' && 
     typeof VideoFrame !== 'undefined';
 
-  if (isWebCodecsSupported) {
-    console.log('Cinema Engine: WebCodecs offline export mode checking...');
-    exportVideoWebCodecs(options).catch((err) => {
-      console.warn('Cinema Engine: WebCodecs crashed during initialization. Switching to MediaRecorder fallback.', err);
+  if (!isWebCodecsSupported) {
+    console.warn('Cinema Engine: WebCodecs not supported. Using real-time MediaRecorder.');
+    exportVideoMediaRecorder(options);
+    return;
+  }
+
+  // Трёхуровневый каскад:
+  // Уровень 1: GPU (VideoToolbox/NVENC) — самый быстрый
+  exportVideoWebCodecs(options, 'prefer-hardware').catch((hwErr) => {
+    console.warn('Cinema Engine: GPU encoder failed, trying CPU software encoder...', hwErr.message);
+    options.onStatus?.('initializing');
+
+    // Уровень 2: CPU-софтвар (openh264/libvpx) — медленнее, но офлайн и без десинхронизации
+    exportVideoWebCodecs(options, 'no-preference').catch((swErr) => {
+      console.warn('Cinema Engine: CPU encoder also failed. Falling back to real-time MediaRecorder.', swErr.message);
+
+      // Уровень 3: Резерв — реальное время
       exportVideoMediaRecorder(options);
     });
-  } else {
-    console.warn('Cinema Engine: WebCodecs not fully supported. Falling back to MediaRecorder realtime mode.');
-    exportVideoMediaRecorder(options);
-  }
+  });
 }
 
 /**
@@ -128,9 +142,13 @@ async function getAudioBuffer(audioElement: HTMLAudioElement): Promise<ArrayBuff
 }
 
 /**
- * РЕЖИМ А: Высокопроизводительный оффлайн-экспорт WebCodecs + mp4-muxer/webm-muxer (Chrome/Edge)
+ * РЕЖИМ А: Высокопроизводительный офлайн-экспорт WebCodecs + mp4-muxer/webm-muxer (Chrome/Edge)
+ * hwAccel: 'prefer-hardware' = GPU (быстро), 'no-preference' = CPU (медленно но надёжно, без десинхронизации)
  */
-async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
+async function exportVideoWebCodecs(
+  options: ExportOptions,
+  hwAccel: HardwareAcceleration = 'prefer-hardware'
+): Promise<void> {
   const {
     lines,
     audioElement,
@@ -142,8 +160,8 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
     coverColors,
     signal,
     onProgress,
+    onStatus,
     onComplete,
-    onError,
     quality,
   } = options;
 
@@ -163,7 +181,9 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
   const canvas = document.createElement('canvas');
   canvas.width = finalWidth;
   canvas.height = finalHeight;
-  const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true }) as CanvasRenderingContext2D;
+  // НЕ используем desynchronized: true в экспорте!
+  // desynchronized=true отвязывает flush GPU-операций от JS — VideoFrame может захватить незаконченный кадр
+  const ctx = canvas.getContext('2d', { alpha: false }) as CanvasRenderingContext2D;
 
   if (!ctx) {
     throw new Error('Failed to get 2D context from canvas');
@@ -184,6 +204,7 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
     .sort((a, b) => (a.time || 0) - (b.time || 0));
 
   // --- ШАГ 1: БЕЗОПАСНОЕ ДЕКОДИРОВАНИЕ АУДИО ---
+  onStatus?.('decoding');
   let audioBuffer: AudioBuffer;
   try {
     const audioArrayBuffer = await getAudioBuffer(audioElement);
@@ -197,6 +218,7 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
   const numChannels = audioBuffer.numberOfChannels;
 
   // --- ШАГ 2: ИНИЦИАЛИЗАЦИЯ МУКСЕРА И КОДЕКОВ ---
+  onStatus?.('initializing');
   let videoEncoder: VideoEncoder | undefined;
   let audioEncoder: AudioEncoder | undefined;
   let muxer: any = null;
@@ -236,14 +258,17 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
       outputType = 'video/webm';
     }
 
+    let encoderError: Error | null = null;
+
     videoEncoder = new VideoEncoder({
       output: (chunk, metadata) => {
         if (isAborted || !muxer) return;
         muxer.addVideoChunk(chunk, metadata);
       },
       error: (e) => {
+        // НЕ вызываем onError напрямую — просто сохраняем ошибку, цикл энкодирования сам её обнаружит
         console.error('VideoEncoder Error:', e);
-        onError(e);
+        if (!encoderError) encoderError = e;
       },
     });
 
@@ -271,10 +296,9 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
           bitrate: targetBitrate,
           bitrateMode: 'variable',
           framerate: 30,
-          // Очень важно: аппаратное ускорение через VideoToolbox (Mac) / NVENC (Win)
-          hardwareAcceleration: 'prefer-hardware',
-          // realtime = мгновенное кодирование через аппаратные чипы вместо медленного CPU-quality рендеринга
-          latencyMode: 'realtime',
+          // Аппаратное ускорение через VideoToolbox (Mac) / NVENC (Win)
+          hardwareAcceleration: hwAccel,
+          // Не задаём latencyMode — пускай аппаратный кодек сам выберет оптимальный режим
         };
 
         if (typeof VideoEncoder.isConfigSupported === 'function') {
@@ -306,8 +330,9 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
         muxer.addAudioChunk(chunk, metadata);
       },
       error: (e) => {
+        // НЕ вызываем onError напрямую — просто сохраняем ошибку
         console.error('AudioEncoder Error:', e);
-        onError(e);
+        if (!encoderError) encoderError = e;
       },
     });
 
@@ -498,6 +523,7 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
 
     // --- ШАГ 5: ПРОГРЕВ КЭШЕЙ (важно до старта лупа!) ---
     // Прорисуем первые N кадров чтобы строитель текста, фона и частиц заполнили кэш
+    onStatus?.('prewarming');
     console.log('Cinema Engine: Pre-warming render caches...');
     const cacheWarmCount = Math.min(timedLines.length, 5);
     for (let i = 0; i < cacheWarmCount; i++) {
@@ -506,12 +532,24 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
     }
     drawFrame(0); // render frame 0 for final state
     console.log('Cinema Engine: Cache warm-up done. Starting encode loop.');
+    onStatus?.('encoding');
 
     // --- ШАГ 5б: СИНХРОНИЗИРОВАННОЕ КОДИРОВАНИЕ ВИДЕО И АУДИО ЧАНКАМИ ---
     let audioSampleOffset = 0;
 
     const runVideoEncodingLoop = async () => {
       while (exportFrame < totalFrames && !isAborted) {
+        if ((videoEncoder?.state as string) === 'closed') {
+          throw new Error('VideoEncoder was closed due to an internal error.');
+        }
+        if ((audioEncoder?.state as string) === 'closed') {
+          throw new Error('AudioEncoder was closed due to an internal error.');
+        }
+        // Проверяем ошибку кодека из async callback
+        if (encoderError) {
+          throw encoderError;
+        }
+
         const time = exportFrame * FRAME_TIME;
 
         // А. Рендерим и кодируем видео-кадр
@@ -520,13 +558,26 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
         const timestampUs = Math.round(time * 1_000_000);
         const videoFrame = new VideoFrame(canvas, { timestamp: timestampUs });
 
-        videoEncoder!.encode(videoFrame, { keyFrame: exportFrame % 300 === 0 });
+        videoEncoder!.encode(videoFrame, { keyFrame: exportFrame % 60 === 0 });
         videoFrame.close();
 
-        // Безопасность: предотвращаем накопление сотен кадров в памяти (каждый ~8MB при 1080p)
-        if (videoEncoder!.encodeQueueSize > 90) {
-          while (videoEncoder!.encodeQueueSize > 45 && !isAborted) {
-            await yieldToMain();
+        // Бэкпресшн: ждём пока энкодер освободит память (каждый кадр ~8MB при 1080p)
+        if (videoEncoder!.encodeQueueSize > 60) {
+          const waitStartTime = performance.now();
+          while (videoEncoder!.encodeQueueSize > 20 && !isAborted) {
+            if ((videoEncoder?.state as string) === 'closed') {
+              throw new Error('VideoEncoder was closed while waiting for queue to clear.');
+            }
+            if (encoderError) throw encoderError;
+            if (performance.now() - waitStartTime > 30000) {
+              throw new Error('VideoEncoder queue wait timed out (stuck queue).');
+            }
+            // Используем yieldToMain (быстрый) для первых 3сек, затем реальный sleep если всё ещё не спало
+            if (performance.now() - waitStartTime < 3000) {
+              await yieldToMain();
+            } else {
+              await sleep(32);
+            }
           }
         }
 
@@ -568,15 +619,20 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
         onProgress(exportFrame / totalFrames, time);
         exportFrame++;
 
-        // Лог производительности каждые 100 кадров
-        if (exportFrame % 100 === 0) {
+        // Йилдим каждые 5 кадров — позволяет процессу GPU-энкодирования выполняться без тротлинга
+        // (на 100 через 100 кадров браузер может замедлять JS хотя бы на 5+ секунд и начнёт throttling)
+        if (exportFrame % 5 === 0) {
+          await yieldToMain();
+        }
+
+        // Перфоманс лог каждые 150 кадров
+        if (exportFrame % 150 === 0) {
           const now = performance.now();
           const elapsed = now - lastPerfLog;
-          const fps = 100 / (elapsed / 1000);
+          const fps = 150 / (elapsed / 1000);
           const qSize = videoEncoder?.encodeQueueSize ?? 0;
           console.log(`[Export] Frame ${exportFrame}/${totalFrames} | Speed: ${fps.toFixed(1)} fps | Encoder queue: ${qSize}`);
           lastPerfLog = now;
-          await yieldToMain();
         }
       }
 
@@ -604,19 +660,16 @@ async function exportVideoWebCodecs(options: ExportOptions): Promise<void> {
     await runVideoEncodingLoop();
 
   } catch (error: any) {
-    console.error('WebCodecs export failed:', error);
+    console.warn('Cinema Engine: WebCodecs export failed, rethrowing for MediaRecorder fallback.', error.message);
     if (videoEncoder && videoEncoder.state !== 'closed') {
       try { videoEncoder.close(); } catch {}
     }
     if (audioEncoder && audioEncoder.state !== 'closed') {
       try { audioEncoder.close(); } catch {}
     }
-    // Если ошибка возникла ДО начала лупа (например нет подходящего кодека),
-    // пробрасываем ошибку вверх, чтобы внешний .catch() переключился на MediaRecorder
-    if (error.message === 'No supported video codec found') {
-      throw error;
-    }
-    onError(error);
+    // Пробрасываем ВСЕ ошибки наверх — внешний .catch() в exportVideo()
+    // перехватит их и переключится на MediaRecorder-фоллбек.
+    throw error;
   }
 }
 
@@ -635,6 +688,7 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
     audioCtx,
     signal,
     onProgress,
+    onStatus,
     onComplete,
     onError,
     quality,
@@ -665,9 +719,10 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
 
   clearTextWidthCache();
 
-  const originalCurrentTime = audioElement.currentTime;
-  const originalMuted = audioElement.muted;
-  const originalVolume = audioElement.volume;
+  // Создаем изолированный аудио-элемент для экспорта, чтобы не ломать основной плеер
+  const exportAudioElement = document.createElement('audio');
+  exportAudioElement.src = audioElement.src;
+  exportAudioElement.crossOrigin = 'anonymous';
 
   let worker: Worker | null = null;
   let workerUrl: string | null = null;
@@ -784,10 +839,8 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
       destinationNode = null;
     }
 
-    audioElement.pause();
-    audioElement.currentTime = originalCurrentTime;
-    audioElement.muted = originalMuted;
-    audioElement.volume = originalVolume;
+    exportAudioElement.pause();
+    exportAudioElement.src = '';
 
     if (bgVideoEl) {
       bgVideoEl.pause();
@@ -831,6 +884,7 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
     .sort((a, b) => (a.time || 0) - (b.time || 0));
 
   const startMR = async () => {
+    onStatus?.('recording');
     try {
       if (!activeAudioCtx) {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -841,14 +895,14 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
         await activeAudioCtx.resume();
       }
 
-      sourceNode = activeAudioCtx.createMediaElementSource(audioElement);
+      sourceNode = activeAudioCtx.createMediaElementSource(exportAudioElement);
       destinationNode = activeAudioCtx.createMediaStreamDestination();
       
       sourceNode.connect(destinationNode);
 
-      audioElement.muted = false;
-      audioElement.volume = 1.0;
-      audioElement.currentTime = 0;
+      exportAudioElement.muted = false;
+      exportAudioElement.volume = 1.0;
+      exportAudioElement.currentTime = 0;
 
       const canvasStream = canvas.captureStream(60);
       const audioStream = destinationNode.stream;
@@ -909,12 +963,12 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
         ctx.imageSmoothingEnabled = true;
         (ctx as any).imageSmoothingQuality = 'high';
 
-        const time = audioElement.currentTime;
-        const duration = audioElement.duration || 0;
+        const time = exportAudioElement.currentTime;
+        const duration = exportAudioElement.duration || 0;
 
         onProgress(duration > 0 ? time / duration : 0, time);
 
-        if (audioElement.ended || (duration > 0 && time >= duration - 0.1)) {
+        if (exportAudioElement.ended || (duration > 0 && time >= duration - 0.1)) {
           finishRecording();
           return;
         }
@@ -970,13 +1024,21 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
       workerUrl = URL.createObjectURL(workerBlob);
       worker = new Worker(workerUrl);
 
+      let lastDrawTime = 0;
+      const DRAW_THROTTLE_MS = 1000 / 30; // не больше 30 рисунков в секунду в режиме записи
+
       worker.onmessage = () => {
+        const now = performance.now();
+        // Пропускаем тики которые пришли раньше чем мы успели отрисовать
+        // Это предотвращает накопление очереди кадров на медленных машинах
+        if (now - lastDrawTime < DRAW_THROTTLE_MS) return;
+        lastDrawTime = now;
         draw();
       };
 
       worker.postMessage({ action: 'start', interval: 1000 / 60 });
 
-      await audioElement.play();
+      await exportAudioElement.play();
 
       if (bgVideoEl) {
         await bgVideoEl.play().catch(() => {});

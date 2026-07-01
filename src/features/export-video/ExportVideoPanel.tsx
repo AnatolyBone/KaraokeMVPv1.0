@@ -48,6 +48,8 @@ export const ExportVideoPanel: React.FC = () => {
   const [exportEta, setExportEta] = useState<string | null>(null);
   const [exportSpeedFps, setExportSpeedFps] = useState<number>(0);
   const exportStartTimeRef = useRef<number>(0);
+  type ExportPhase = 'idle' | 'decoding' | 'initializing' | 'prewarming' | 'encoding' | 'recording';
+  const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
 
   const dict = localization[language];
 
@@ -61,6 +63,12 @@ export const ExportVideoPanel: React.FC = () => {
   const [particlesTimeMs, setParticlesTimeMs] = useState(0);
   const [lyricsTimeMs, setLyricsTimeMs] = useState(0);
   const [visualizerTimeMs, setVisualizerTimeMs] = useState(0);
+
+  const bgTimeRef = useRef(0);
+  const particlesTimeRef = useRef(0);
+  const lyricsTimeRef = useRef(0);
+  const visualizerTimeRef = useRef(0);
+  const frameTimeRef = useRef(0);
 
   const frameCountRef = useRef(0);
   const fpsIntervalRef = useRef<any>(null);
@@ -130,6 +138,12 @@ export const ExportVideoPanel: React.FC = () => {
     fpsIntervalRef.current = setInterval(() => {
       setFps(frameCountRef.current);
       frameCountRef.current = 0;
+      
+      setBgTimeMs(bgTimeRef.current);
+      setParticlesTimeMs(particlesTimeRef.current);
+      setLyricsTimeMs(lyricsTimeRef.current);
+      setVisualizerTimeMs(visualizerTimeRef.current);
+      setFrameTimeMs(frameTimeRef.current);
     }, 1000);
 
     return () => clearInterval(fpsIntervalRef.current);
@@ -252,7 +266,7 @@ export const ExportVideoPanel: React.FC = () => {
         renderBackground(ctx, renderFrame, null);
       }
       const bgEnd = performance.now();
-      setBgTimeMs(Number((bgEnd - bgStart).toFixed(1)));
+      bgTimeRef.current = Number((bgEnd - bgStart).toFixed(1));
 
       // --- 2. PARTICLES DRAWING TIMING ---
       const particlesStart = performance.now();
@@ -297,7 +311,7 @@ export const ExportVideoPanel: React.FC = () => {
         });
       }
       const particlesEnd = performance.now();
-      setParticlesTimeMs(Number((particlesEnd - particlesStart).toFixed(1)));
+      particlesTimeRef.current = Number((particlesEnd - particlesStart).toFixed(1));
 
       // --- 3. VISUALIZERS DRAWING TIMING ---
       const visualizerStart = performance.now();
@@ -329,7 +343,7 @@ export const ExportVideoPanel: React.FC = () => {
         ctx.stroke();
       }
       const visualizerEnd = performance.now();
-      setVisualizerTimeMs(Number((visualizerEnd - visualizerStart).toFixed(1)));
+      visualizerTimeRef.current = Number((visualizerEnd - visualizerStart).toFixed(1));
 
       // --- 4. LYRICS TYPOGRAPHY DRAWING TIMING ---
       const lyricsStart = performance.now();
@@ -583,10 +597,10 @@ export const ExportVideoPanel: React.FC = () => {
       ctx.font = `18px ${videoStyle.fontFamily}`;
       ctx.fillText('CINEMA ENGINE 2.0', width / 2, height * 0.85);
       const lyricsEnd = performance.now();
-      setLyricsTimeMs(Number((lyricsEnd - lyricsStart).toFixed(1)));
+      lyricsTimeRef.current = Number((lyricsEnd - lyricsStart).toFixed(1));
 
       const totalEnd = performance.now();
-      setFrameTimeMs(Number((totalEnd - totalStart).toFixed(1)));
+      frameTimeRef.current = Number((totalEnd - totalStart).toFixed(1));
       frameCountRef.current++;
 
       activeFrameId = requestAnimationFrame(renderPreview);
@@ -627,6 +641,7 @@ export const ExportVideoPanel: React.FC = () => {
     setSecondsRecorded(0);
     setExportEta(null);
     setExportSpeedFps(0);
+    setExportPhase('initializing');
     exportStartTimeRef.current = performance.now();
 
     const controller = new AbortController();
@@ -652,6 +667,9 @@ export const ExportVideoPanel: React.FC = () => {
         audioCtx,
         signal: controller.signal,
         quality,
+        onStatus: (status) => {
+          setExportPhase(status);
+        },
         onProgress: (percent, seconds) => {
           setProgress(percent);
           setSecondsRecorded(seconds);
@@ -1003,9 +1021,18 @@ export const ExportVideoPanel: React.FC = () => {
           <div className="flex items-center gap-3">
             <RefreshCw className="animate-spin text-violet-500" size={20} />
             <div>
-              <h4 className="font-semibold text-sm">{dict.videoRecording}</h4>
+              <h4 className="font-semibold text-sm">
+                {exportPhase === 'decoding' && (language === 'ru' ? 'Декодирование аудио...' : 'Decoding audio...')}
+                {exportPhase === 'initializing' && (language === 'ru' ? 'Инициализация кодеков...' : 'Initializing codecs...')}
+                {exportPhase === 'prewarming' && (language === 'ru' ? 'Подготовка рендерера...' : 'Pre-warming renderer...')}
+                {exportPhase === 'encoding' && (language === 'ru' ? 'Кодирование видео (офлайн)' : 'Encoding video (offline)')}
+                {exportPhase === 'recording' && (language === 'ru' ? 'Запись в реальном времени' : 'Real-time recording')}
+                {exportPhase === 'idle' && dict.videoRecording}
+              </h4>
               <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                {language === 'ru' ? 'Аудио проигрывается для синхронизации. Пожалуйста, не закрывайте вкладку.' : 'Audio is syncing silently. Please keep this tab active.'}
+                {exportPhase === 'recording'
+                  ? (language === 'ru' ? 'Используется режим реального времени. Не закрывайте вкладку.' : 'Real-time mode active. Keep this tab open.')
+                  : (language === 'ru' ? 'Быстрый офлайн-экспорт. Не закрывайте вкладку.' : 'Fast offline export. Keep this tab open.')}
               </p>
             </div>
           </div>

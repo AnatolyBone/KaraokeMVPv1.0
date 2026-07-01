@@ -215,10 +215,10 @@ const App: React.FC = () => {
           ? 'bg-zinc-950/70 border-white/5 shadow-lg shadow-black/25' 
           : 'bg-white/70 border-zinc-200/80 shadow-sm shadow-zinc-100/50'
       }`}>
-        <div className="max-w-6xl mx-auto px-4 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="max-w-6xl mx-auto px-4 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           
           {/* Top Row on Mobile: Logo and Mobile Controls */}
-          <div className="flex items-center justify-between w-full md:w-auto">
+          <div className="flex items-center justify-between w-full lg:w-auto">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/60 dark:border-white/10 shadow-md dark:shadow-black/30 flex items-center justify-center shrink-0 hover:scale-105 transition-all duration-300 relative group overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-tr from-violet-600/15 via-fuchsia-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
@@ -258,7 +258,7 @@ const App: React.FC = () => {
             </div>
 
             {/* Mobile Actions: Theme, Clear & Admin */}
-            <div className="flex md:hidden items-center gap-1.5 shrink-0">
+            <div className="flex lg:hidden items-center gap-1.5 shrink-0">
               {userProfile?.role === 'admin' && (
                 <button
                   onClick={() => setIsAdminOpen(true)}
@@ -307,16 +307,16 @@ const App: React.FC = () => {
 
           {/* Navigation Step Tabs (Desktop Only) */}
           {appMode === 'editor' && (
-            <nav id="editor-step-tabs" className="hidden md:flex items-center gap-1 p-1 rounded-xl bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 backdrop-blur-md shrink-0">
+            <nav id="editor-step-tabs" className="hidden lg:flex items-center gap-0.5 p-1 rounded-xl bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 backdrop-blur-md shrink-0">
               <button
                 onClick={() => setStep('input')}
-                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-300 ${
+                className={`px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg text-[11px] xl:text-xs font-bold flex items-center gap-1 xl:gap-1.5 transition-all duration-300 ${
                   step === 'input'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-400 shadow-md shadow-violet-500/5'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-450 shadow-md shadow-violet-500/5'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
               >
-                <Type size={14} />
+                <Type size={13} />
                 {dict.inputStep}
               </button>
 
@@ -328,13 +328,13 @@ const App: React.FC = () => {
                   }
                   setStep('timing');
                 }}
-                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-300 ${
+                className={`px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg text-[11px] xl:text-xs font-bold flex items-center gap-1 xl:gap-1.5 transition-all duration-300 ${
                   step === 'timing'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-400 shadow-md shadow-violet-500/5'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-455 shadow-md shadow-violet-500/5'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
               >
-                <Clock size={14} />
+                <Clock size={13} />
                 {dict.timingStep}
               </button>
 
@@ -346,25 +346,25 @@ const App: React.FC = () => {
                   }
                   setStep('edit');
                 }}
-                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-300 ${
+                className={`px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg text-[11px] xl:text-xs font-bold flex items-center gap-1 xl:gap-1.5 transition-all duration-300 ${
                   step === 'edit'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-400 shadow-md shadow-violet-500/5'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-450 shadow-md shadow-violet-500/5'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
               >
-                <Edit3 size={14} />
+                <Edit3 size={13} />
                 {dict.editStep}
               </button>
             </nav>
           )}
 
           {/* Bottom Row on Mobile (Desktop Right Column): Switchers & Desktop-only Controls */}
-          <div className="flex items-center justify-between md:justify-end gap-3 w-full md:w-auto mt-0.5 md:mt-0">
+          <div className="flex items-center justify-between lg:justify-end gap-2 w-full lg:w-auto mt-0.5 lg:mt-0 shrink-0">
             {/* Mode Switcher */}
-            <div id="app-mode-switcher" className="flex-1 md:flex-none flex items-center gap-1 bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 p-1 rounded-xl backdrop-blur-md">
+            <div id="app-mode-switcher" className="flex-1 lg:flex-none flex items-center gap-1 bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 p-1 rounded-xl backdrop-blur-md">
               <button
                 onClick={() => setAppMode('karaoke')}
-                className={`flex-1 md:flex-none px-4 py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
+                className={`flex-1 lg:flex-none px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
                   appMode === 'karaoke'
                     ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-md shadow-violet-500/5'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
@@ -375,9 +375,9 @@ const App: React.FC = () => {
               </button>
               <button
                 onClick={() => setAppMode('editor')}
-                className={`flex-1 md:flex-none px-4 py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
+                className={`flex-1 lg:flex-none px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
                   appMode === 'editor'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-md shadow-violet-500/5'
+                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-450 shadow-md shadow-violet-500/5'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                 }`}
                 title={dict.appModeEditor}
@@ -390,7 +390,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-1 bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 p-1 rounded-xl shrink-0 backdrop-blur-md">
               <button
                 onClick={() => setLanguage('ru')}
-                className={`px-3 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-300 cursor-pointer ${
+                className={`px-2 py-1 xl:px-3 xl:py-1.5 rounded-lg font-bold text-[10px] transition-all duration-300 cursor-pointer ${
                   language === 'ru'
                     ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-sm'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
@@ -400,7 +400,7 @@ const App: React.FC = () => {
               </button>
               <button
                 onClick={() => setLanguage('en')}
-                className={`px-3 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-300 cursor-pointer ${
+                className={`px-2 py-1 xl:px-3 xl:py-1.5 rounded-lg font-bold text-[10px] transition-all duration-300 cursor-pointer ${
                   language === 'en'
                     ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-sm'
                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
@@ -411,49 +411,49 @@ const App: React.FC = () => {
             </div>
 
             {/* Desktop Actions: Theme, Clear & Admin (Hidden on mobile) */}
-            <div className="hidden md:flex items-center gap-2 shrink-0">
+            <div className="hidden lg:flex items-center gap-1.5 shrink-0">
               {userProfile?.role === 'admin' && (
                 <button
                   onClick={() => setIsAdminOpen(true)}
-                  className={`p-2 rounded-xl border hover:scale-105 transition-all bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-500`}
+                  className={`p-1.5 xl:p-2 rounded-xl border hover:scale-105 transition-all bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-500`}
                   title={dict.adminButton}
                 >
-                  <Shield size={18} />
+                  <Shield size={16} />
                 </button>
               )}
 
               <button
                 onClick={toggleTheme}
-                className={`p-2 rounded-xl border hover:scale-105 transition-all ${
+                className={`p-1.5 xl:p-2 rounded-xl border hover:scale-105 transition-all ${
                   theme === 'dark'
                     ? 'bg-zinc-950 border-zinc-800 hover:bg-zinc-900 text-yellow-500'
                     : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600'
                 }`}
                 title={theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
               >
-                {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
               </button>
 
               <button
                 onClick={() => setTourActive(true)}
-                className={`p-2 rounded-xl border hover:scale-105 transition-all ${
+                className={`p-1.5 xl:p-2 rounded-xl border hover:scale-105 transition-all ${
                   theme === 'dark'
                     ? 'bg-zinc-950 border-zinc-800 hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200'
                     : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650 hover:text-zinc-800'
                 }`}
                 title={dict.tourStartBtn}
               >
-                <HelpCircle size={18} />
+                <HelpCircle size={16} />
               </button>
 
               <button
                 onClick={handleClearAll}
-                className={`p-2 rounded-xl border hover:bg-red-500/10 text-red-500 hover:scale-105 transition-all ${
+                className={`p-1.5 xl:p-2 rounded-xl border hover:bg-red-500/10 text-red-500 hover:scale-105 transition-all ${
                   theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'
                 }`}
                 title="Очистить всё"
               >
-                <Trash2 size={18} />
+                <Trash2 size={16} />
               </button>
             </div>
           </div>
@@ -463,7 +463,7 @@ const App: React.FC = () => {
 
       {/* Mobile Navigation Steps */}
       {appMode === 'editor' && (
-        <div className="md:hidden w-full border-b border-zinc-200/30 dark:border-zinc-800/30 bg-zinc-100/50 dark:bg-zinc-950/50 p-2 flex gap-1 justify-around">
+        <div className="lg:hidden w-full border-b border-zinc-200/30 dark:border-zinc-800/30 bg-zinc-100/50 dark:bg-zinc-950/50 p-2 flex gap-1 justify-around">
           <button
             onClick={() => setStep('input')}
             className={`flex-1 py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
