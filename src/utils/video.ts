@@ -74,21 +74,21 @@ export function exportVideo(options: ExportOptions): void {
   }
 
   // Четырехуровневый каскад:
-  // Уровень 1: GPU MP4 (H.264) — самый быстрый
-  exportVideoWebCodecs(options, 'prefer-hardware').catch((hwErr) => {
-    console.warn('Cinema Engine: GPU MP4 encoder failed, trying CPU software encoder...', hwErr.message);
+  // Уровень 1: CPU-софтвар MP4 (H.264) — самый надёжный и стабильный, не вешает GPU
+  exportVideoWebCodecs(options, 'prefer-software').catch((swErr) => {
+    console.warn('Cinema Engine: CPU MP4 encoder failed, trying GPU hardware encoder...', swErr.message);
     options.onWarning?.(
       options.language === 'ru'
-        ? `Сбой аппаратного MP4: ${hwErr.message}. Пробуем программный MP4...`
-        : `GPU MP4 failed: ${hwErr.message}. Trying software MP4...`
+        ? `Сбой программного MP4: ${swErr.message}. Пробуем аппаратное ускорение...`
+        : `CPU MP4 failed: ${swErr.message}. Trying GPU MP4...`
     );
     options.onStatus?.('initializing');
 
-    // Уровень 2: CPU-софтвар MP4 (H.264)
-    exportVideoWebCodecs(options, 'prefer-software').catch((swErr) => {
-      console.warn('Cinema Engine: CPU MP4 encoder also failed.', swErr.message);
+    // Уровень 2: GPU MP4 (H.264)
+    exportVideoWebCodecs(options, 'prefer-hardware').catch((hwErr) => {
+      console.warn('Cinema Engine: GPU MP4 encoder also failed.', hwErr.message);
       
-      // Уровень 3: Если MP4 полностью упал, пробуем офлайн WebM (VP9) — у него стабильный софтверный кодек в Chrome
+      // Уровень 3: Если MP4 полностью упал, пробуем офлайн WebM (VP9) на CPU (стабильный софтверный кодек)
       if (options.format === 'mp4') {
         options.onWarning?.(
           options.language === 'ru'
