@@ -36,8 +36,10 @@ interface ExportOptions {
   } | null;
   audioCtx?: AudioContext;
   signal?: AbortSignal;
+  language?: 'ru' | 'en';
   onProgress: (percent: number, secondsRecorded: number) => void;
   onStatus?: (status: 'decoding' | 'initializing' | 'prewarming' | 'encoding' | 'recording') => void;
+  onWarning?: (message: string) => void;
   onComplete: (blob: Blob) => void;
   onError: (error: Error) => void;
   quality?: 'low' | 'medium' | 'high' | 'ultra';
@@ -62,6 +64,11 @@ export function exportVideo(options: ExportOptions): void {
 
   if (!isWebCodecsSupported) {
     console.warn('Cinema Engine: WebCodecs not supported. Using real-time MediaRecorder.');
+    options.onWarning?.(
+      options.language === 'ru'
+        ? 'Ваш браузер не поддерживает офлайн-кодеки. Используется запись в реальном времени.'
+        : 'Your browser does not support offline codecs. Using real-time recording.'
+    );
     exportVideoMediaRecorder(options);
     return;
   }
@@ -70,11 +77,21 @@ export function exportVideo(options: ExportOptions): void {
   // Уровень 1: GPU (VideoToolbox/NVENC) — самый быстрый
   exportVideoWebCodecs(options, 'prefer-hardware').catch((hwErr) => {
     console.warn('Cinema Engine: GPU encoder failed, trying CPU software encoder...', hwErr.message);
+    options.onWarning?.(
+      options.language === 'ru'
+        ? `Сбой аппаратного ускорения: ${hwErr.message}. Пробуем программное кодирование...`
+        : `GPU acceleration failed: ${hwErr.message}. Trying software encoding...`
+    );
     options.onStatus?.('initializing');
 
     // Уровень 2: CPU-софтвар (openh264/libvpx) — медленнее, но офлайн и без десинхронизации
     exportVideoWebCodecs(options, 'no-preference').catch((swErr) => {
       console.warn('Cinema Engine: CPU encoder also failed. Falling back to real-time MediaRecorder.', swErr.message);
+      options.onWarning?.(
+        options.language === 'ru'
+          ? `Сбой офлайн-кодеков: ${swErr.message}. Переход на запись в реальном времени...`
+          : `Offline codecs failed: ${swErr.message}. Falling back to real-time recording...`
+      );
 
       // Уровень 3: Резерв — реальное время
       exportVideoMediaRecorder(options);
@@ -161,6 +178,7 @@ async function exportVideoWebCodecs(
     signal,
     onProgress,
     onStatus,
+    onWarning: _onWarning,
     onComplete,
     quality,
   } = options;
@@ -225,39 +243,6 @@ async function exportVideoWebCodecs(
   let outputType = '';
 
   try {
-    if (format === 'mp4') {
-      muxer = new Mp4Muxer({
-        target: new Mp4Target(),
-        video: {
-          codec: 'avc',
-          width: finalWidth,
-          height: finalHeight,
-        },
-        audio: {
-          codec: 'aac',
-          numberOfChannels: numChannels,
-          sampleRate: sampleRate,
-        },
-        fastStart: 'in-memory',
-      });
-      outputType = 'video/mp4';
-    } else {
-      muxer = new WebmMuxer({
-        target: new WebmTarget(),
-        video: {
-          codec: 'V_VP9',
-          width: finalWidth,
-          height: finalHeight,
-        },
-        audio: {
-          codec: 'A_OPUS',
-          numberOfChannels: numChannels,
-          sampleRate: sampleRate,
-        },
-      });
-      outputType = 'video/webm';
-    }
-
     let encoderError: Error | null = null;
 
     videoEncoder = new VideoEncoder({
@@ -273,7 +258,6 @@ async function exportVideoWebCodecs(
     });
 
     // Для MP4: H.264 поддерживается всегда, добавляем VP9 как запасной
-    // Для WebM: VP9 с правильными уровнями (важно: 10=Level1=256x144, 31=Level3.1=1080p, 41=Level4.1=4K)
     const videoCodecsToTry = format === 'mp4' 
       ? ['avc1.640034', 'avc1.640033', 'avc1.4d0033', 'avc1.42e033', 'avc1.4d002a']
       : [
@@ -287,7 +271,6 @@ async function exportVideoWebCodecs(
     let videoConfigured = false;
     for (const codec of videoCodecsToTry) {
       try {
-        // Битрейт: для 1080p 3Mbps достаточно для музыкального видео, меньше битрейт = быстрее кодирование
         const targetBitrate = options.resolution === '720p' ? 2_000_000 : 3_000_000;
         const config: VideoEncoderConfig = {
           codec: codec,
@@ -296,9 +279,7 @@ async function exportVideoWebCodecs(
           bitrate: targetBitrate,
           bitrateMode: 'variable',
           framerate: 30,
-          // Аппаратное ускорение через VideoToolbox (Mac) / NVENC (Win)
           hardwareAcceleration: hwAccel,
-          // Не задаём latencyMode — пускай аппаратный кодек сам выберет оптимальный режим
         };
 
         if (typeof VideoEncoder.isConfigSupported === 'function') {
@@ -307,7 +288,6 @@ async function exportVideoWebCodecs(
             console.warn(`Codec ${codec} not supported by hardware, trying next...`);
             continue;
           }
-          // Покажем полный конфиг чтобы видеть hardwareAcceleration в результате
           console.log(`Codec ${codec} isConfigSupported result:`, JSON.stringify(support.config));
         }
 
@@ -330,7 +310,6 @@ async function exportVideoWebCodecs(
         muxer.addAudioChunk(chunk, metadata);
       },
       error: (e) => {
-        // НЕ вызываем onError напрямую — просто сохраняем ошибку
         console.error('AudioEncoder Error:', e);
         if (!encoderError) encoderError = e;
       },
@@ -338,6 +317,7 @@ async function exportVideoWebCodecs(
 
     const audioCodecsToTry = format === 'mp4' ? ['mp4a.40.2', 'opus'] : ['opus'];
     let audioConfigured = false;
+    let chosenAudioCodec: 'aac' | 'opus' = 'aac';
 
     for (const codec of audioCodecsToTry) {
       try {
@@ -357,7 +337,8 @@ async function exportVideoWebCodecs(
 
         audioEncoder.configure(config);
         audioConfigured = true;
-        console.log(`Cinema Engine: AudioEncoder configured with codec: ${codec}`);
+        chosenAudioCodec = codec.includes('mp4a') ? 'aac' : 'opus';
+        console.log(`Cinema Engine: AudioEncoder configured with codec: ${codec} (muxer: ${chosenAudioCodec})`);
         break;
       } catch (err) {
         console.warn(`Audio codec ${codec} failed:`, err);
@@ -366,6 +347,41 @@ async function exportVideoWebCodecs(
 
     if (!audioConfigured) {
       throw new Error('No supported audio codec found');
+    }
+
+    // ИНИЦИАЛИЗИРУЕМ МУКСЕР ПОСЛЕ ТОГО, КАК КОДЕКИ НАСТРОЕНЫ
+    // Это гарантирует, что codec в muxer совпадет с реально выбранным кодеком (aac/opus)
+    if (format === 'mp4') {
+      muxer = new Mp4Muxer({
+        target: new Mp4Target(),
+        video: {
+          codec: 'avc',
+          width: finalWidth,
+          height: finalHeight,
+        },
+        audio: {
+          codec: chosenAudioCodec,
+          numberOfChannels: numChannels,
+          sampleRate: sampleRate,
+        },
+        fastStart: 'in-memory',
+      });
+      outputType = 'video/mp4';
+    } else {
+      muxer = new WebmMuxer({
+        target: new WebmTarget(),
+        video: {
+          codec: 'V_VP9',
+          width: finalWidth,
+          height: finalHeight,
+        },
+        audio: {
+          codec: 'A_OPUS',
+          numberOfChannels: numChannels,
+          sampleRate: sampleRate,
+        },
+      });
+      outputType = 'video/webm';
     }
 
     // --- ШАГ 3: ПОДГОТОВКА ВИЗУАЛЬНЫХ ЭЛЕМЕНТОВ ---

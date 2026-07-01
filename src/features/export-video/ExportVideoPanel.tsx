@@ -50,6 +50,7 @@ export const ExportVideoPanel: React.FC = () => {
   const exportStartTimeRef = useRef<number>(0);
   type ExportPhase = 'idle' | 'decoding' | 'initializing' | 'prewarming' | 'encoding' | 'recording';
   const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
   const dict = localization[language];
 
@@ -642,6 +643,7 @@ export const ExportVideoPanel: React.FC = () => {
     setExportEta(null);
     setExportSpeedFps(0);
     setExportPhase('initializing');
+    setWarningMessage(null);
     exportStartTimeRef.current = performance.now();
 
     const controller = new AbortController();
@@ -667,8 +669,12 @@ export const ExportVideoPanel: React.FC = () => {
         audioCtx,
         signal: controller.signal,
         quality,
+        language,
         onStatus: (status) => {
           setExportPhase(status);
+        },
+        onWarning: (msg) => {
+          setWarningMessage(msg);
         },
         onProgress: (percent, seconds) => {
           setProgress(percent);
@@ -1036,6 +1042,14 @@ export const ExportVideoPanel: React.FC = () => {
               </p>
             </div>
           </div>
+
+          {/* Предупреждение / уведомление об откате на резервный режим */}
+          {warningMessage && (
+            <div className="text-[10px] text-amber-500 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl leading-relaxed flex items-start gap-1.5 animate-pulse">
+              <span className="shrink-0">⚠️</span>
+              <span>{warningMessage}</span>
+            </div>
+          )}
 
           {/* Progress Bar */}
           <div className="space-y-1.5">
