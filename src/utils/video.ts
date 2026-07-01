@@ -632,9 +632,12 @@ async function exportVideoWebCodecs(
         onProgress(exportFrame / totalFrames, time);
         exportFrame++;
 
-        // Йилдим каждые 5 кадров — позволяет процессу GPU-энкодирования выполняться без тротлинга
-        // (на 100 через 100 кадров браузер может замедлять JS хотя бы на 5+ секунд и начнёт throttling)
-        if (exportFrame % 5 === 0) {
+        // Освобождаем главный поток для браузера через реальный sleep(1) каждые 15 кадров.
+        // Это предотвращает зависание сетевого стека (ERR_HTTP2_PING_FAILED) и дает время GPU IPC
+        // обрабатывать кадры, а между ними делаем микро-йилд.
+        if (exportFrame % 15 === 0) {
+          await sleep(1);
+        } else if (exportFrame % 5 === 0) {
           await yieldToMain();
         }
 
