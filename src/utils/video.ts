@@ -85,7 +85,7 @@ export function exportVideo(options: ExportOptions): void {
     options.onStatus?.('initializing');
 
     // Уровень 2: CPU-софтвар MP4 (H.264)
-    exportVideoWebCodecs(options, 'no-preference').catch((swErr) => {
+    exportVideoWebCodecs(options, 'prefer-software').catch((swErr) => {
       console.warn('Cinema Engine: CPU MP4 encoder also failed.', swErr.message);
       
       // Уровень 3: Если MP4 полностью упал, пробуем офлайн WebM (VP9) — у него стабильный софтверный кодек в Chrome
@@ -102,7 +102,7 @@ export function exportVideo(options: ExportOptions): void {
           format: 'webm',
         };
         
-        exportVideoWebCodecs(webmOptions, 'no-preference').catch((webmErr) => {
+        exportVideoWebCodecs(webmOptions, 'prefer-software').catch((webmErr) => {
           console.warn('Cinema Engine: Offline WebM also failed. Falling back to real-time MediaRecorder.', webmErr.message);
           options.onWarning?.(
             options.language === 'ru'
@@ -992,7 +992,7 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
       exportAudioElement.volume = 1.0;
       exportAudioElement.currentTime = 0;
 
-      const canvasStream = canvas.captureStream(60);
+      const canvasStream = canvas.captureStream(30);
       const audioStream = destinationNode.stream;
 
       const combinedStream = new MediaStream([
@@ -1112,19 +1112,11 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
       workerUrl = URL.createObjectURL(workerBlob);
       worker = new Worker(workerUrl);
 
-      let lastDrawTime = 0;
-      const DRAW_THROTTLE_MS = 1000 / 30; // не больше 30 рисунков в секунду в режиме записи
-
       worker.onmessage = () => {
-        const now = performance.now();
-        // Пропускаем тики которые пришли раньше чем мы успели отрисовать
-        // Это предотвращает накопление очереди кадров на медленных машинах
-        if (now - lastDrawTime < DRAW_THROTTLE_MS) return;
-        lastDrawTime = now;
         draw();
       };
 
-      worker.postMessage({ action: 'start', interval: 1000 / 60 });
+      worker.postMessage({ action: 'start', interval: 1000 / 30 });
 
       await exportAudioElement.play();
 
