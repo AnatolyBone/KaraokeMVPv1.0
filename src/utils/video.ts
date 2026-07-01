@@ -608,10 +608,16 @@ async function exportVideoWebCodecs(
         videoEncoder!.encode(videoFrame, { keyFrame: exportFrame % 30 === 0 });
         videoFrame.close();
 
-        // Проверяем ошибку кодека после encode()
-        if (encoderError) throw encoderError;
-        if ((videoEncoder?.state as string) === 'closed') {
-          throw new Error('VideoEncoder was closed due to an internal error.');
+        // Бэкпресшн: держим размер очереди в разумных пределах (до 30 кадров), чтобы не перегружать память.
+        // Не используем искусственный таймаут, так как в фоновых вкладках setTimeout сильно троттлится.
+        if (videoEncoder!.encodeQueueSize > 30) {
+          while (videoEncoder!.encodeQueueSize > 10 && !isAborted) {
+            if (encoderError) throw encoderError;
+            if ((videoEncoder?.state as string) === 'closed') {
+              throw new Error('VideoEncoder was closed while waiting for queue to clear.');
+            }
+            await sleep(15);
+          }
         }
 
         // Б. Добавляем новые сэмплы звука в очередь
@@ -677,17 +683,8 @@ async function exportVideoWebCodecs(
         onProgress(exportFrame / totalFrames, time);
         exportFrame++;
 
-        // Flush кодека каждые 30 кадров (на границе keyframe).
-        // Это ПРИНУДИТЕЛЬНО дренирует внутреннюю очередь H.264/VP9 кодера и
-        // заставляет его вызвать onChunk для всех накопленных кадров.
-        // Без flush() аппаратный кодек может буферизовать сотни кадров и никогда не отдать ни одного.
-        if (exportFrame % 30 === 0) {
-          await videoEncoder!.flush();
-          if (encoderError) throw encoderError;
-        } else {
-          // Между flush() даём браузеру один тик на обработку событий
-          await sleep(0);
-        }
+        // Даём браузеру один тик на обработку событий
+        await sleep(0);
 
         // Перфоманс лог каждые 150 кадров
         if (exportFrame % 150 === 0) {
