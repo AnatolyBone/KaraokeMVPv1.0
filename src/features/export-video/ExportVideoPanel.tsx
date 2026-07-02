@@ -56,6 +56,24 @@ export const ExportVideoPanel: React.FC = () => {
 
   // Качество рендеринга (Quality Manager)
   const [quality, setQuality] = useState<QualityPreset>('high');
+  const [exportFps, setExportFps] = useState<30 | 60>(30);
+  const [customBitrate, setCustomBitrate] = useState<number>(3000);
+
+  useEffect(() => {
+    let defaultBitrate = 3000;
+    if (resolution === '1080p') {
+      if (quality === 'low') defaultBitrate = 2500;
+      else if (quality === 'medium') defaultBitrate = 4500;
+      else if (quality === 'high') defaultBitrate = 6000;
+      else if (quality === 'ultra') defaultBitrate = 12000;
+    } else {
+      if (quality === 'low') defaultBitrate = 1500;
+      else if (quality === 'medium') defaultBitrate = 2500;
+      else if (quality === 'high') defaultBitrate = 4000;
+      else if (quality === 'ultra') defaultBitrate = 8000;
+    }
+    setCustomBitrate(defaultBitrate);
+  }, [resolution, quality]);
 
   // Профайлер производительности (Frame & Per-Layer Profiler)
   const [fps, setFps] = useState(0);
@@ -670,6 +688,8 @@ export const ExportVideoPanel: React.FC = () => {
         signal: controller.signal,
         quality,
         language,
+        fps: exportFps,
+        bitrateKbps: customBitrate,
         onStatus: (status) => {
           setExportPhase(status);
         },
@@ -685,7 +705,7 @@ export const ExportVideoPanel: React.FC = () => {
             const elapsed = (performance.now() - exportStartTimeRef.current) / 1000;
             const estimatedTotal = elapsed / percent;
             const remaining = Math.max(0, estimatedTotal - elapsed);
-            const fps = seconds / elapsed * 30; // approx fps based on video seconds processed
+            const fps = seconds / elapsed * exportFps;
             setExportSpeedFps(Math.round(fps));
             if (remaining > 5) {
               const mins = Math.floor(remaining / 60);
@@ -886,6 +906,34 @@ export const ExportVideoPanel: React.FC = () => {
                   <option value="16:9">Desktop (16:9)</option>
                   <option value="9:16">Mobile / TikTok (9:16)</option>
                   <option value="1:1">Square / Instagram (1:1)</option>
+                </select>
+              </div>
+
+              {/* FPS Selection */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-zinc-400">Частота кадров (FPS)</label>
+                <select
+                  value={exportFps}
+                  onChange={(e) => setExportFps(Number(e.target.value) as 30 | 60)}
+                  className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-900 border-zinc-800 text-zinc-300`}
+                >
+                  <option value={30}>30 FPS (Быстрый экспорт)</option>
+                  <option value={60}>60 FPS (Плавные анимации)</option>
+                </select>
+              </div>
+
+              {/* Bitrate Selection */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-zinc-400">Битрейт видео (качество)</label>
+                <select
+                  value={customBitrate}
+                  onChange={(e) => setCustomBitrate(Number(e.target.value))}
+                  className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-900 border-zinc-800 text-zinc-300`}
+                >
+                  <option value={1500}>1.5 Mbps (Экономный)</option>
+                  <option value={3000}>3 Mbps (Средний SD)</option>
+                  <option value={6000}>6 Mbps (Высокий HD)</option>
+                  <option value={12000}>12 Mbps (Ультра 1080p)</option>
                 </select>
               </div>
 

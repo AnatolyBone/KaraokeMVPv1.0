@@ -1,10 +1,11 @@
 import { LyricLine, VideoStyleOptions } from '../../types';
 import { clearBackgroundCache } from './renderBackground';
+import { createCanvas } from './canvasHelper';
 
 interface PrerenderedText {
-  inactiveCanvas: HTMLCanvasElement;
-  activeCanvas: HTMLCanvasElement;
-  glowCanvas: HTMLCanvasElement | null;
+  inactiveCanvas: HTMLCanvasElement | OffscreenCanvas;
+  activeCanvas: HTMLCanvasElement | OffscreenCanvas;
+  glowCanvas: HTMLCanvasElement | OffscreenCanvas | null;
   width: number;
   height: number;
   /** Эффективный размер шрифта (может быть уменьшен если текст не вписался в maxWidth) */
@@ -105,9 +106,7 @@ export function getPrerenderedText(
   const canvasHeight = Math.ceil(fittedFontSize * 2 + padding * 2);
 
   // --- 1. INACTIVE TEXT LAYER ---
-  const inactiveCanvas = document.createElement('canvas');
-  inactiveCanvas.width = canvasWidth;
-  inactiveCanvas.height = canvasHeight;
+  const inactiveCanvas = createCanvas(canvasWidth, canvasHeight);
   const inactiveCtx = inactiveCanvas.getContext('2d')!;
   inactiveCtx.font = fittedFont;
   inactiveCtx.textAlign = 'center';
@@ -121,9 +120,7 @@ export function getPrerenderedText(
   }
 
   // --- 2. ACTIVE TEXT LAYER ---
-  const activeCanvas = document.createElement('canvas');
-  activeCanvas.width = canvasWidth;
-  activeCanvas.height = canvasHeight;
+  const activeCanvas = createCanvas(canvasWidth, canvasHeight);
   const activeCtx = activeCanvas.getContext('2d')!;
   activeCtx.font = fittedFont;
   activeCtx.textAlign = 'center';
@@ -137,11 +134,9 @@ export function getPrerenderedText(
   }
 
   // --- 3. GLOW / SHADOW LAYER (Запекаем тяжелый Gaussian Blur один раз перед стартом!) ---
-  let glowCanvas: HTMLCanvasElement | null = null;
+  let glowCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
   if (glowSize > 0) {
-    glowCanvas = document.createElement('canvas');
-    glowCanvas.width = canvasWidth;
-    glowCanvas.height = canvasHeight;
+    glowCanvas = createCanvas(canvasWidth, canvasHeight);
     const glowCtx = glowCanvas.getContext('2d')!;
     glowCtx.font = fittedFont;
     glowCtx.textAlign = 'center';

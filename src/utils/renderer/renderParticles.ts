@@ -1,4 +1,5 @@
 import { RenderLayer, RenderFrame } from './types';
+import { createCanvas } from './canvasHelper';
 
 interface Particle {
   x: number;
@@ -92,12 +93,13 @@ export class ParticlesLayer implements RenderLayer {
       const miniHeight = Math.ceil(height / 4);
       
       if (!cachedMiniCanvas) {
-        cachedMiniCanvas = document.createElement('canvas');
+        cachedMiniCanvas = createCanvas(miniWidth, miniHeight);
+        cachedMiniCtx = cachedMiniCanvas.getContext('2d') as CanvasRenderingContext2D;
       }
       if (cachedMiniCanvas.width !== miniWidth || cachedMiniCanvas.height !== miniHeight) {
         cachedMiniCanvas.width = miniWidth;
         cachedMiniCanvas.height = miniHeight;
-        cachedMiniCtx = cachedMiniCanvas.getContext('2d');
+        cachedMiniCtx = cachedMiniCanvas.getContext('2d') as CanvasRenderingContext2D;
       }
       
       if (cachedMiniCtx) {

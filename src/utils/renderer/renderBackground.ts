@@ -1,4 +1,5 @@
 import { RenderLayer, RenderFrame } from './types';
+import { createCanvas } from './canvasHelper';
 
 // Кэш для линейных градиентов фона
 let cachedBgCanvas: HTMLCanvasElement | null = null;
@@ -55,12 +56,13 @@ export class BackgroundLayer implements RenderLayer {
       const miniHeight = Math.ceil(height * scale);
       
       if (!cachedBlurCanvas) {
-        cachedBlurCanvas = document.createElement('canvas');
+        cachedBlurCanvas = createCanvas(miniWidth, miniHeight);
+        cachedBlurCtx = cachedBlurCanvas.getContext('2d') as CanvasRenderingContext2D;
       }
       if (cachedBlurCanvas.width !== miniWidth || cachedBlurCanvas.height !== miniHeight) {
         cachedBlurCanvas.width = miniWidth;
         cachedBlurCanvas.height = miniHeight;
-        cachedBlurCtx = cachedBlurCanvas.getContext('2d');
+        cachedBlurCtx = cachedBlurCanvas.getContext('2d') as CanvasRenderingContext2D;
       }
       
       if (cachedBlurCtx) {
@@ -92,9 +94,7 @@ export class BackgroundLayer implements RenderLayer {
       return;
     }
 
-    cachedBgCanvas = document.createElement('canvas');
-    cachedBgCanvas.width = width;
-    cachedBgCanvas.height = height;
+    cachedBgCanvas = createCanvas(width, height);
     const bgCtx = cachedBgCanvas.getContext('2d');
 
     if (bgCtx) {

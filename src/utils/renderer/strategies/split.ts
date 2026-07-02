@@ -1,9 +1,10 @@
 import { RenderFrame, AnimationStrategy } from '../types';
 import { LyricLine } from '../../../types';
 import { getPrerenderedText, getCachedTextWidth } from '../textCache';
+import { createCanvas } from '../canvasHelper';
 
 // Кэшируем обложку с тенями и скруглениями, чтобы не вызывать тяжелый shadowBlur каждый кадр
-let cachedCoverCanvas: HTMLCanvasElement | null = null;
+let cachedCoverCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 let cachedCoverKey = '';
 
 function formatTime(seconds: number): string {
@@ -131,9 +132,7 @@ export class SplitScreenStrategy implements AnimationStrategy {
     } else {
       // Рисуем один раз и кэшируем
       const shadowPadding = resolution === '1080p' ? 80 : 60;
-      cachedCoverCanvas = document.createElement('canvas');
-      cachedCoverCanvas.width = coverSize + shadowPadding * 2;
-      cachedCoverCanvas.height = coverSize + shadowPadding * 2;
+      cachedCoverCanvas = createCanvas(coverSize + shadowPadding * 2, coverSize + shadowPadding * 2);
       const cCtx = cachedCoverCanvas.getContext('2d');
       
       if (cCtx) {
