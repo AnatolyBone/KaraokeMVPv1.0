@@ -7,10 +7,116 @@ import { extractDominantColors } from '../../utils/colors';
 import { extractMetadataFromAudio } from '../../utils/metadata';
 import { localization } from '../../utils/localization';
 import { LyricsSearchModal } from '../../components/LyricsSearchModal';
-import { getExactAllLyrics } from '../../services/lyricsProvider';
+import { searchAllLyrics, LyricsProviderResult } from '../../services/lyricsProvider';
 import { parseLRC } from '../../utils/lrc';
-import { Upload, Trash2, Music, RefreshCw, Search, Smartphone, Loader2 } from 'lucide-react';
+import { Upload, Trash2, Music, RefreshCw, Search, Smartphone, Loader2, Play, Pause } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
+import { formatTime } from '../../utils/time';
+
+function normalizeAutoSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanAutoSearchPart(value: string): string {
+  return value
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/\b(?:минус|instrumental|karaoke|кавер|cover|remix|rmx|slowed|reverb|sped\s*up|nightcore|bass\s*boosted)\b/giu, ' ')
+    .replace(/\((?:[^)]*(?:минус|instrumental|karaoke|remix|slowed|reverb|sped\s*up|nightcore)[^)]*)\)/giu, ' ')
+    .replace(/\[(?:[^\]]*(?:минус|instrumental|karaoke|remix|slowed|reverb|sped\s*up|nightcore)[^\]]*)\]/giu, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*[-—–]\s*$/g, '')
+    .trim();
+}
+
+function splitAutoSearchParts(value: string): string[] {
+  return cleanAutoSearchPart(value)
+    .split(/\s*[-—–]\s*/)
+    .map(cleanAutoSearchPart)
+    .filter(Boolean);
+}
+
+function parseAutoSearchMetadata(audioFileName: string, metadata: {
+  artist: string | null;
+  title: string | null;
+} | null): { artist: string | null; title: string } {
+  const cleanAudioName = cleanAutoSearchPart(audioFileName);
+  let artist = metadata?.artist ? cleanAutoSearchPart(metadata.artist) : '';
+  let title = metadata?.title ? cleanAutoSearchPart(metadata.title) : '';
+
+  const titleParts = title ? splitAutoSearchParts(title) : [];
+  if (titleParts.length >= 2) {
+    artist = artist || titleParts[0];
+    title = titleParts[1];
+  }
+
+  if ((!artist || !title) && cleanAudioName) {
+    const parts = splitAutoSearchParts(cleanAudioName);
+
+    if (parts.length >= 2) {
+      artist = artist || parts[0];
+      title = title || parts[1];
+    } else {
+      title = title || cleanAudioName;
+    }
+  }
+
+  return {
+    artist: artist || null,
+    title: title || cleanAudioName,
+  };
+}
+
+function pickBestAutoSearchResult(
+  results: LyricsProviderResult[],
+  title: string,
+  artist?: string | null
+): LyricsProviderResult | null {
+  if (results.length === 0) return null;
+
+  const targetTitle = normalizeAutoSearchText(title);
+  const targetArtist = artist ? normalizeAutoSearchText(artist) : '';
+
+  const ranked = [...results]
+    .map((result) => {
+      const resultTitle = normalizeAutoSearchText(result.trackName);
+      const resultArtist = normalizeAutoSearchText(result.artistName);
+      let score = 0;
+
+      if (resultTitle === targetTitle) score += 60;
+      else if (resultTitle.includes(targetTitle) || targetTitle.includes(resultTitle)) score += 35;
+
+      if (targetArtist) {
+        if (resultArtist === targetArtist) score += 40;
+        else if (resultArtist.includes(targetArtist) || targetArtist.includes(resultArtist)) score += 20;
+      }
+
+      if (result.syncedLyrics) score += 10;
+      return { result, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return ranked[0]?.result || null;
+}
+
+async function searchAutoLyricsWithFallbacks(
+  queries: string[],
+  title: string,
+  artist?: string | null
+): Promise<LyricsProviderResult | null> {
+  const uniqueQueries = Array.from(new Set(queries.map((query) => query.trim()).filter(Boolean)));
+
+  for (const query of uniqueQueries) {
+    const results = await searchAllLyrics(query);
+    const best = pickBestAutoSearchResult(results, title, artist);
+    if (best) return best;
+  }
+
+  return null;
+}
 
 export const AudioLoader: React.FC = () => {
   const {
@@ -27,6 +133,7 @@ export const AudioLoader: React.FC = () => {
     setTrackMetadata,
     trackMetadata,
     setCurrentProjectTitle,
+    setStep,
     rawText,
     setRawText,
     setLines,
@@ -37,6 +144,9 @@ export const AudioLoader: React.FC = () => {
   const [loadingTg, setLoadingTg] = useState(false);
   const [downloadingTgId, setDownloadingTgId] = useState<string | null>(null);
   const [showTgImport, setShowTgImport] = useState(false);
+  const [playerTime, setPlayerTime] = useState(0);
+  const [playerDuration, setPlayerDuration] = useState(0);
+  const [playerPlaying, setPlayerPlaying] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -80,39 +190,57 @@ export const AudioLoader: React.FC = () => {
     }
   }, [audioUrl, audioFileName, setAudio, setCover, setCoverColors, setTrackMetadata]);
 
-  const [autoSearchedFile, setAutoSearchedFile] = useState<string | null>(null);
+  const autoSearchedFileRef = useRef<string | null>(null);
+  const activeAutoSearchTokenRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (audioFileName) {
+      autoSearchedFileRef.current = null;
+      activeAutoSearchTokenRef.current = null;
+      setLyricsSearchStatus('idle');
+    }
+  }, [audioFileName]);
 
   // Автопоиск текста песни при наличии трека (срабатывает как при загрузке, так и при восстановлении из IndexedDB)
   useEffect(() => {
     if (audioUrl && audioFileName && !rawText.trim()) {
-      if (autoSearchedFile === audioFileName) return;
+      const searchAudioFileName = audioFileName;
 
-      let artist = trackMetadata?.artist || null;
-      let title = trackMetadata?.title || null;
+      const cleanAudioName = cleanAutoSearchPart(audioFileName);
+      const { artist, title } = parseAutoSearchMetadata(audioFileName, trackMetadata);
 
-      // Попытка распарсить имя файла, если тегов нет
-      if ((!artist || !title) && audioFileName) {
-        const cleanName = audioFileName.replace(/\.[^/.]+$/, '');
-        const parts = cleanName.split(/\s*[-—–]\s*/);
-        if (parts.length >= 2) {
-          artist = artist || parts[0].trim();
-          title = title || parts[1].trim();
+      if (title || cleanAudioName) {
+        const searchTitle = title || cleanAudioName;
+        const queryCandidates = [
+          artist ? `${artist} - ${searchTitle}` : '',
+          artist ? `${artist} ${searchTitle}` : '',
+          searchTitle,
+          cleanAudioName,
+        ];
+        const autoSearchKey = `${audioFileName}|${artist || ''}|${searchTitle}`;
+        if (autoSearchedFileRef.current === autoSearchKey) {
+          return;
         }
-      }
 
-      if (title && artist) {
-        setAutoSearchedFile(audioFileName);
+        autoSearchedFileRef.current = autoSearchKey;
+        const autoSearchToken = `${autoSearchKey}|${performance.now()}`;
+        activeAutoSearchTokenRef.current = autoSearchToken;
         setLyricsSearchStatus('searching');
-        getExactAllLyrics({
-          trackName: title,
-          artistName: artist,
-          albumName: trackMetadata?.album || undefined,
-        }).then((result) => {
+        const searchPromise = searchAutoLyricsWithFallbacks(queryCandidates, searchTitle, artist);
+
+        searchPromise.then((result) => {
+          if (
+            activeAutoSearchTokenRef.current !== autoSearchToken ||
+            useKaraokeStore.getState().audioFileName !== searchAudioFileName
+          ) {
+            return;
+          }
           if (result) {
             if (result.syncedLyrics) {
               const parsed = parseLRC(result.syncedLyrics);
               setLines(parsed);
               setRawText(result.syncedLyrics);
+              setStep('timing');
               setLyricsSearchStatus('found');
             } else if (result.plainLyrics) {
               const parsed = parseLRC(result.plainLyrics);
@@ -126,16 +254,23 @@ export const AudioLoader: React.FC = () => {
             setLyricsSearchStatus('not_found');
           }
         }).catch((err) => {
-          console.warn('Auto-search exact lyrics failed:', err);
+          if (
+            activeAutoSearchTokenRef.current !== autoSearchToken ||
+            useKaraokeStore.getState().audioFileName !== searchAudioFileName
+          ) {
+            return;
+          }
+          console.warn('Auto-search lyrics failed:', err);
           setLyricsSearchStatus('not_found');
         });
       } else {
         setLyricsSearchStatus('not_found');
       }
     } else if (!audioUrl) {
+      activeAutoSearchTokenRef.current = null;
       setLyricsSearchStatus('idle');
     }
-  }, [audioUrl, audioFileName, trackMetadata, rawText, language, setLines, setRawText, autoSearchedFile]);
+  }, [audioUrl, audioFileName, trackMetadata, rawText, language, setLines, setRawText]);
 
   const handleFile = async (file: File, meta?: { artist: string | null; title: string | null }) => {
     const isAudioMime = file.type.startsWith('audio/');
@@ -144,6 +279,19 @@ export const AudioLoader: React.FC = () => {
       alert(language === 'ru' ? 'Пожалуйста, выберите корректный аудиофайл (MP3, WAV, OGG, M4A)' : 'Please select a valid audio file (MP3, WAV, OGG, M4A)');
       return;
     }
+
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+
+    setRawText('');
+    setLines([]);
+    setCurrentProjectTitle(null);
+    const initialMetadata = meta
+      ? { artist: meta.artist || null, title: meta.title || null, album: null as string | null }
+      : null;
+    setTrackMetadata(initialMetadata);
+    setLyricsSearchStatus('idle');
 
     const url = URL.createObjectURL(file);
     setAudio(url, file.name);
@@ -216,7 +364,13 @@ export const AudioLoader: React.FC = () => {
     setAudio(null, null);
     setCover(null);
     setCoverColors(null);
+    setRawText('');
+    setLines([]);
+    setCurrentProjectTitle(null);
     setIsPlaying(false);
+    setPlayerTime(0);
+    setPlayerDuration(0);
+    setPlayerPlaying(false);
     if (audioRef.current) {
       audioRef.current.src = '';
     }
@@ -226,6 +380,25 @@ export const AudioLoader: React.FC = () => {
     } catch (err: any) {
       console.error('Error clearing DB:', err);
     }
+  };
+
+  const toggleAudioPlayback = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      audio.play().catch((err) => console.warn('Audio play failed:', err));
+    } else {
+      audio.pause();
+    }
+  };
+
+  const handlePlayerSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const audio = audioRef.current;
+    if (!audio || !playerDuration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * playerDuration;
+    setPlayerTime(audio.currentTime);
   };
 
   const fetchTelegramTracks = async () => {
@@ -350,7 +523,7 @@ export const AudioLoader: React.FC = () => {
                 ? 'border-violet-500 bg-violet-500/10 scale-[1.01]'
                 : theme === 'dark'
                   ? 'border-zinc-700 hover:border-zinc-600 bg-zinc-900/50 hover:bg-zinc-900/80'
-                  : 'border-zinc-300 hover:border-zinc-400 bg-white hover:bg-zinc-50'
+                  : 'border-violet-200/70 hover:border-violet-300 bg-white/76 hover:bg-white/88 backdrop-blur-xl shadow-sm shadow-violet-200/40'
               }`}
           >
             <input
@@ -379,7 +552,11 @@ export const AudioLoader: React.FC = () => {
             <div className="flex justify-center gap-3">
               <button
                 onClick={() => setIsSearchOpen(true)}
-                className="flex items-center gap-2 px-5 py-2.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-violet-400 hover:text-violet-300 font-semibold rounded-xl text-sm transition-all shadow-sm cursor-pointer"
+                className={`flex items-center gap-2 px-5 py-2.5 border font-semibold rounded-xl text-sm transition-all shadow-sm cursor-pointer ${
+                  theme === 'dark'
+                    ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-violet-400 hover:text-violet-300'
+                    : 'bg-white/72 border-violet-200/70 hover:border-violet-300 hover:bg-white/90 text-violet-700 hover:text-violet-800 backdrop-blur-xl shadow-violet-200/50'
+                }`}
               >
                 <Search size={16} />
                 <span>{dict.lyricsSearchBtn}</span>
@@ -391,7 +568,9 @@ export const AudioLoader: React.FC = () => {
                   className={`flex items-center gap-2 px-5 py-2.5 border font-semibold rounded-xl text-sm transition-all shadow-sm cursor-pointer ${
                     showTgImport
                       ? 'bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/25'
-                      : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-sky-400 hover:text-sky-350'
+                      : theme === 'dark'
+                        ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-sky-400 hover:text-sky-300'
+                        : 'bg-white/72 border-sky-200/70 hover:border-sky-300 hover:bg-white/90 text-sky-600 hover:text-sky-700 backdrop-blur-xl shadow-sky-200/40'
                   }`}
                 >
                   <Smartphone size={16} />
@@ -452,7 +631,7 @@ export const AudioLoader: React.FC = () => {
                             <p className="truncate font-bold">
                               {track.artist && track.title ? `${track.artist} - ${track.title}` : track.file_name}
                             </p>
-                            <p className="text-[9px] text-zinc-450 dark:text-zinc-500 font-mono mt-0.5">
+                            <p className="text-[9px] text-zinc-500 dark:text-zinc-500 font-mono mt-0.5">
                               {track.file_size ? `${(track.file_size / (1024 * 1024)).toFixed(1)} MB` : ''}
                               {track.duration ? ` • ${Math.floor(track.duration / 60)}:${(track.duration % 60).toString().padStart(2, '0')}` : ''}
                             </p>
@@ -480,9 +659,9 @@ export const AudioLoader: React.FC = () => {
 
       {audioUrl && (
         <div
-          className={`rounded-2xl p-6 shadow-sm border transition-all ${theme === 'dark'
-              ? 'bg-zinc-950 border-zinc-800 text-zinc-100'
-              : 'bg-white border-zinc-200 text-zinc-900'
+            className={`rounded-2xl p-6 shadow-sm border transition-all ${theme === 'dark'
+              ? 'bg-zinc-900/75 border-white/10 text-zinc-100 shadow-black/20'
+              : 'bg-white/82 backdrop-blur-xl border-white/70 text-zinc-900 shadow-violet-200/35'
             }`}
         >
           <div className="flex items-center justify-between gap-4 mb-4">
@@ -505,7 +684,7 @@ export const AudioLoader: React.FC = () => {
                   <img
                     src={coverUrl}
                     alt="Cover art"
-                    className="w-14 h-14 rounded-xl object-cover shadow border border-zinc-250/10 group-hover:brightness-50 transition-all"
+                    className="w-14 h-14 rounded-xl object-cover shadow border border-zinc-200/10 group-hover:brightness-50 transition-all"
                   />
                 ) : (
                   <div className="w-14 h-14 rounded-xl bg-violet-500/10 text-violet-500 dark:text-violet-400 flex items-center justify-center group-hover:bg-violet-500/20 transition-all">
@@ -552,7 +731,11 @@ export const AudioLoader: React.FC = () => {
             <div className="flex items-center gap-1.5 shrink-0">
               <button
                 onClick={() => setIsSearchOpen(true)}
-                className="p-2 rounded-lg text-violet-400 hover:text-violet-300 hover:bg-zinc-900 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer border border-transparent hover:border-zinc-850"
+                className={`p-2 rounded-lg transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer border ${
+                  theme === 'dark'
+                    ? 'text-violet-300 hover:text-violet-200 hover:bg-zinc-800 border-transparent hover:border-white/10'
+                    : 'text-violet-600 hover:text-violet-700 hover:bg-violet-50 border-transparent hover:border-violet-100'
+                }`}
                 title={dict.lyricsSearchBtn}
               >
                 <Search size={16} />
@@ -561,12 +744,50 @@ export const AudioLoader: React.FC = () => {
 
               <button
                 onClick={removeAudio}
-                className="p-2 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                className="p-2 rounded-lg text-red-500 hover:text-red-600 hover:bg-red-500/10 transition-colors cursor-pointer"
                 title={language === 'ru' ? 'Заменить аудио' : 'Replace audio'}
               >
                 <Trash2 size={18} />
               </button>
             </div>
+          </div>
+
+          <div
+            className={`mt-2 rounded-2xl p-3 flex items-center gap-3 border ${
+              theme === 'dark'
+                ? 'bg-zinc-950/80 border-white/10'
+                : 'bg-zinc-100/80 border-zinc-200'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={toggleAudioPlayback}
+              className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white flex items-center justify-center shadow-md shadow-violet-500/20 active:scale-95 transition-all shrink-0"
+              title={playerPlaying ? (language === 'ru' ? 'Пауза' : 'Pause') : (language === 'ru' ? 'Воспроизвести' : 'Play')}
+            >
+              {playerPlaying ? <Pause size={17} /> : <Play size={17} className="ml-0.5" />}
+            </button>
+
+            <span className="font-mono text-[11px] font-bold text-violet-500 dark:text-violet-300 tabular-nums shrink-0">
+              {formatTime(playerTime).slice(0, 5)}
+            </span>
+
+            <div
+              onClick={handlePlayerSeek}
+              className={`h-2.5 flex-1 rounded-full overflow-hidden cursor-pointer ${
+                theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-300/70'
+              }`}
+            >
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-[width] duration-75"
+                style={{ width: `${playerDuration > 0 ? Math.min(100, (playerTime / playerDuration) * 100) : 0}%` }}
+              />
+            </div>
+
+            <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums shrink-0">
+              {formatTime(playerDuration).slice(0, 5)}
+            </span>
+
           </div>
 
           <audio
@@ -575,10 +796,27 @@ export const AudioLoader: React.FC = () => {
             }}
             src={audioUrl}
             preload="auto"
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            className="w-full focus:outline-none outline-none [&::-webkit-media-controls-panel]:bg-zinc-100 dark:[&::-webkit-media-controls-panel]:bg-zinc-900 [&::-webkit-media-controls-current-time-display]:text-violet-500 mt-2"
-            controls
+            onLoadedMetadata={(e) => {
+              setPlayerDuration(e.currentTarget.duration || 0);
+              setPlayerTime(e.currentTarget.currentTime || 0);
+            }}
+            onTimeUpdate={(e) => {
+              setPlayerTime(e.currentTarget.currentTime || 0);
+              setPlayerDuration(e.currentTarget.duration || 0);
+            }}
+            onPlay={() => {
+              setIsPlaying(true);
+              setPlayerPlaying(true);
+            }}
+            onPause={() => {
+              setIsPlaying(false);
+              setPlayerPlaying(false);
+            }}
+            onEnded={() => {
+              setIsPlaying(false);
+              setPlayerPlaying(false);
+            }}
+            className="hidden"
           />
         </div>
       )}

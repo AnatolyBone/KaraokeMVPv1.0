@@ -35,6 +35,29 @@ DROP POLICY IF EXISTS "Пользователь может менять свой
 CREATE POLICY "Пользователь может менять свой профиль, а админы — любые профили" ON public.profiles 
     FOR UPDATE USING (auth.uid() = id OR public.is_admin());
 
+-- Обычный пользователь может редактировать только безопасные поля своего профиля.
+-- Роль и Telegram ID разрешено менять только администраторам.
+CREATE OR REPLACE FUNCTION public.protect_profile_privileged_fields_trigger()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND NOT public.is_admin() THEN
+        IF OLD.role IS DISTINCT FROM NEW.role THEN
+            RAISE EXCEPTION 'Изменение роли доступно только администратору!';
+        END IF;
+        IF OLD.telegram_id IS DISTINCT FROM NEW.telegram_id THEN
+            RAISE EXCEPTION 'Изменение Telegram ID доступно только администратору!';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS protect_profile_privileged_fields ON public.profiles;
+CREATE TRIGGER protect_profile_privileged_fields
+    BEFORE UPDATE ON public.profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION public.protect_profile_privileged_fields_trigger();
+
 -- Функция триггера для защиты супер-администратора от удаления и изменения роли через API
 CREATE OR REPLACE FUNCTION public.protect_super_admin_trigger()
 RETURNS TRIGGER AS $$
@@ -196,13 +219,40 @@ ALTER TABLE public.telegram_auth_sessions ENABLE ROW LEVEL SECURITY;
 
 -- Разрешаем чтение и удаление сессии любому клиенту, знающему UUID
 DROP POLICY IF EXISTS "Allow select auth session by ID" ON public.telegram_auth_sessions;
-CREATE POLICY "Allow select auth session by ID" ON public.telegram_auth_sessions FOR SELECT USING (true);
+CREATE POLICY "Allow select auth session by ID" ON public.telegram_auth_sessions FOR SELECT USING (false);
 
 DROP POLICY IF EXISTS "Allow delete auth session by ID" ON public.telegram_auth_sessions;
-CREATE POLICY "Allow delete auth session by ID" ON public.telegram_auth_sessions FOR DELETE USING (true);
+CREATE POLICY "Allow delete auth session by ID" ON public.telegram_auth_sessions FOR DELETE USING (
+    created_at > NOW() - INTERVAL '10 minutes'
+);
 
 DROP POLICY IF EXISTS "Allow insert auth session" ON public.telegram_auth_sessions;
-CREATE POLICY "Allow insert auth session" ON public.telegram_auth_sessions FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow insert auth session" ON public.telegram_auth_sessions FOR INSERT WITH CHECK (
+    status = 'pending'
+    AND telegram_id IS NULL
+    AND auth_email IS NULL
+    AND auth_password IS NULL
+);
+
+CREATE OR REPLACE FUNCTION public.redeem_telegram_auth_session(p_session_id UUID)
+RETURNS TABLE(auth_email VARCHAR, auth_password TEXT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH redeemed AS (
+        DELETE FROM public.telegram_auth_sessions
+        WHERE id = p_session_id
+          AND status = 'authorized'
+          AND created_at > NOW() - INTERVAL '5 minutes'
+        RETURNING telegram_auth_sessions.auth_email, telegram_auth_sessions.auth_password
+    )
+    SELECT redeemed.auth_email, redeemed.auth_password
+    FROM redeemed;
+END;
+$$;
 
 -- 7. ТАБЛИЦА ОБЩИХ ТРЕКОВ ИЗ TELEGRAM BOT
 CREATE TABLE IF NOT EXISTS public.telegram_audio_shares (
@@ -253,7 +303,11 @@ CREATE TABLE IF NOT EXISTS public.telegram_bot_settings (
 ALTER TABLE public.telegram_bot_settings ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow all read to settings" ON public.telegram_bot_settings;
-CREATE POLICY "Allow all read to settings" ON public.telegram_bot_settings FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public read safe settings" ON public.telegram_bot_settings;
+CREATE POLICY "Allow public read safe settings" ON public.telegram_bot_settings FOR SELECT USING (
+    key IN ('daily_publish_limit_free', 'daily_publish_limit_pro')
+    OR public.is_admin()
+);
 
 DROP POLICY IF EXISTS "Allow admin modify settings" ON public.telegram_bot_settings;
 CREATE POLICY "Allow admin modify settings" ON public.telegram_bot_settings FOR ALL USING (public.is_admin());
@@ -268,12 +322,11 @@ CREATE TABLE IF NOT EXISTS public.telegram_bot_debug_logs (
 ALTER TABLE public.telegram_bot_debug_logs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow all read to debug logs" ON public.telegram_bot_debug_logs;
-CREATE POLICY "Allow all read to debug logs" ON public.telegram_bot_debug_logs FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow admin read debug logs" ON public.telegram_bot_debug_logs;
+CREATE POLICY "Allow admin read debug logs" ON public.telegram_bot_debug_logs FOR SELECT USING (public.is_admin());
 
 DROP POLICY IF EXISTS "Allow all insert to debug logs" ON public.telegram_bot_debug_logs;
-CREATE POLICY "Allow all insert to debug logs" ON public.telegram_bot_debug_logs FOR INSERT WITH CHECK (true);
-
-
-
+DROP POLICY IF EXISTS "Allow admin insert debug logs" ON public.telegram_bot_debug_logs;
+CREATE POLICY "Allow admin insert debug logs" ON public.telegram_bot_debug_logs FOR INSERT WITH CHECK (public.is_admin());
 
 

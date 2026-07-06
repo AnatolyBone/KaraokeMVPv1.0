@@ -1,13 +1,13 @@
-import { RenderLayer, RenderFrame } from './types';
+import { Canvas2D, Canvas2DContext, RenderLayer, RenderFrame } from './types';
 import { createCanvas } from './canvasHelper';
 
 // Кэш для линейных градиентов фона
-let cachedBgCanvas: HTMLCanvasElement | null = null;
+let cachedBgCanvas: Canvas2D | null = null;
 let cachedBgKey = '';
 
 // Кэш для оффскрин-холста cover-blur
-let cachedBlurCanvas: HTMLCanvasElement | null = null;
-let cachedBlurCtx: CanvasRenderingContext2D | null = null;
+let cachedBlurCanvas: Canvas2D | null = null;
+let cachedBlurCtx: Canvas2DContext | null = null;
 
 /** Сбрасывает все кэши фона — вызывается при смене пресета/стиля */
 export function clearBackgroundCache(): void {
@@ -18,7 +18,7 @@ export function clearBackgroundCache(): void {
 }
 
 export class BackgroundLayer implements RenderLayer {
-  render(ctx: CanvasRenderingContext2D, frame: RenderFrame): void {
+  render(ctx: Canvas2DContext, frame: RenderFrame): void {
     const { width, height, styleOptions, coverColors, pulseFactor, quality } = frame;
 
     if (quality === 'low') {
@@ -50,6 +50,7 @@ export class BackgroundLayer implements RenderLayer {
     if (styleOptions.bgType === 'cover-blur') {
       const pColor = coverColors ? coverColors.primary : '#3c0b63';
       const sColor = coverColors ? coverColors.secondary : '#11031f';
+      const glowColor = coverColors ? coverColors.glow : '#a855f7';
       
       const scale = 0.25;
       const miniWidth = Math.ceil(width * scale);
@@ -57,12 +58,13 @@ export class BackgroundLayer implements RenderLayer {
       
       if (!cachedBlurCanvas) {
         cachedBlurCanvas = createCanvas(miniWidth, miniHeight);
-        cachedBlurCtx = cachedBlurCanvas.getContext('2d') as CanvasRenderingContext2D;
+        cachedBlurCtx = cachedBlurCanvas.getContext('2d') as Canvas2DContext;
       }
-      if (cachedBlurCanvas.width !== miniWidth || cachedBlurCanvas.height !== miniHeight) {
-        cachedBlurCanvas.width = miniWidth;
-        cachedBlurCanvas.height = miniHeight;
-        cachedBlurCtx = cachedBlurCanvas.getContext('2d') as CanvasRenderingContext2D;
+      const blurCanvas = cachedBlurCanvas;
+      if (blurCanvas.width !== miniWidth || blurCanvas.height !== miniHeight) {
+        blurCanvas.width = miniWidth;
+        blurCanvas.height = miniHeight;
+        cachedBlurCtx = blurCanvas.getContext('2d') as Canvas2DContext;
       }
       
       if (cachedBlurCtx) {
@@ -70,17 +72,30 @@ export class BackgroundLayer implements RenderLayer {
         const ry = miniHeight / 2;
         const rRadius = miniWidth * 0.85 * pulseFactor;
         
+        const baseGrad = cachedBlurCtx.createLinearGradient(0, 0, miniWidth, miniHeight);
+        baseGrad.addColorStop(0, pColor);
+        baseGrad.addColorStop(0.58, sColor);
+        baseGrad.addColorStop(1, '#030108');
+        cachedBlurCtx.fillStyle = baseGrad;
+        cachedBlurCtx.fillRect(0, 0, miniWidth, miniHeight);
+
         const grad = cachedBlurCtx.createRadialGradient(rx, ry, 12, rx, ry, rRadius);
-        grad.addColorStop(0, pColor);
-        grad.addColorStop(0.55, sColor);
-        grad.addColorStop(1, '#040008');
+        grad.addColorStop(0, hexToRgba(glowColor, 0.48));
+        grad.addColorStop(0.45, hexToRgba(sColor, 0.42));
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
         cachedBlurCtx.fillStyle = grad;
+        cachedBlurCtx.fillRect(0, 0, miniWidth, miniHeight);
+
+        const sideGlow = cachedBlurCtx.createRadialGradient(miniWidth * 0.18, miniHeight * 0.82, 0, miniWidth * 0.18, miniHeight * 0.82, miniWidth * 0.72);
+        sideGlow.addColorStop(0, hexToRgba(pColor, 0.55));
+        sideGlow.addColorStop(1, 'rgba(0,0,0,0)');
+        cachedBlurCtx.fillStyle = sideGlow;
         cachedBlurCtx.fillRect(0, 0, miniWidth, miniHeight);
         
         ctx.save();
         ctx.imageSmoothingEnabled = true;
         (ctx as any).imageSmoothingQuality = 'medium';
-        ctx.drawImage(cachedBlurCanvas, 0, 0, width, height);
+        ctx.drawImage(blurCanvas, 0, 0, width, height);
         ctx.restore();
       }
       return;
@@ -88,18 +103,24 @@ export class BackgroundLayer implements RenderLayer {
 
     // Обычные линейные градиенты: кэшируем в отдельную переменную
     // Ключ включает bgType чтобы смена стиля инвалидировала кэш
-    const bgKey = `${styleOptions.bgType}_${styleOptions.gradientPreset}_${width}x${height}`;
+    const colorKey = coverColors ? `${coverColors.primary}_${coverColors.secondary}_${coverColors.glow}` : 'fallback';
+    const bgKey = `${styleOptions.bgType}_${styleOptions.gradientPreset}_${colorKey}_${width}x${height}`;
     if (cachedBgCanvas && cachedBgKey === bgKey) {
       ctx.drawImage(cachedBgCanvas, 0, 0);
       return;
     }
 
     cachedBgCanvas = createCanvas(width, height);
-    const bgCtx = cachedBgCanvas.getContext('2d');
+    const bgCanvas = cachedBgCanvas;
+    const bgCtx = bgCanvas.getContext('2d');
 
     if (bgCtx) {
       let grad = bgCtx.createLinearGradient(0, 0, width, height);
-      if (styleOptions.gradientPreset === 'purple-night') {
+      if (coverColors) {
+        grad.addColorStop(0, coverColors.primary);
+        grad.addColorStop(0.48, coverColors.secondary);
+        grad.addColorStop(1, '#030108');
+      } else if (styleOptions.gradientPreset === 'purple-night') {
         grad.addColorStop(0, '#090514');
         grad.addColorStop(0.5, '#140c24');
         grad.addColorStop(1, '#05020a');
@@ -115,14 +136,14 @@ export class BackgroundLayer implements RenderLayer {
       bgCtx.fillStyle = grad;
       bgCtx.fillRect(0, 0, width, height);
       cachedBgKey = bgKey;
-      ctx.drawImage(cachedBgCanvas, 0, 0);
+      ctx.drawImage(bgCanvas, 0, 0);
     }
   }
 }
 
 // Синглтон
 const backgroundLayerInstance = new BackgroundLayer();
-export function renderBackground(ctx: CanvasRenderingContext2D, frame: RenderFrame, bgVideoEl?: HTMLVideoElement | null): void {
+export function renderBackground(ctx: Canvas2DContext, frame: RenderFrame, bgVideoEl?: HTMLVideoElement | null): void {
   if (frame.styleOptions.bgType === 'custom-video' && bgVideoEl && bgVideoEl.readyState >= 2) {
     ctx.drawImage(bgVideoEl, 0, 0, frame.width, frame.height);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
@@ -170,4 +191,3 @@ function hexToRgba(hex: string, alpha: number): string {
   const b = parseInt(hex.slice(5, 7), 16) || 0;
   return `rgba(${r},${g},${b},${alpha})`;
 }
-

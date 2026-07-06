@@ -1,7 +1,7 @@
-import { RenderLayer, RenderFrame } from './types';
+import { Canvas2DContext, RenderLayer, RenderFrame } from './types';
 
 export class VisualizerLayer implements RenderLayer {
-  render(ctx: CanvasRenderingContext2D, frame: RenderFrame): void {
+  render(ctx: Canvas2DContext, frame: RenderFrame): void {
     const { width, height, styleOptions, coverColors, fft } = frame;
 
     if (styleOptions.visualizerType === 'none') return;
@@ -61,6 +61,6 @@ function hexToRgba(hex: string, alpha: number): string {
 
 // Синглтон-инстанс для обратной совместимости
 const visualizerLayerInstance = new VisualizerLayer();
-export function renderVisualizer(ctx: CanvasRenderingContext2D, frame: RenderFrame): void {
+export function renderVisualizer(ctx: Canvas2DContext, frame: RenderFrame): void {
   visualizerLayerInstance.render(ctx, frame);
 }

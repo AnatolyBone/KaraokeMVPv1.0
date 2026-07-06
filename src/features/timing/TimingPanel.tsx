@@ -103,7 +103,7 @@ export const TimingPanel: React.FC = () => {
           </div>
 
           {/* Line vs Word vs Syllable Sync toggles */}
-          <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200/30 dark:border-zinc-850 p-1 rounded-xl">
+          <div className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200/30 dark:border-zinc-800 p-1 rounded-xl">
             <button
               onClick={() => {
                 setTimingMode('line');

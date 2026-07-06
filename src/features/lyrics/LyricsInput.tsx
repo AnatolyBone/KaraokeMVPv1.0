@@ -87,7 +87,7 @@ export const LyricsInput: React.FC = () => {
     <div id="lyrics-input-section" className="flex flex-col gap-6">
       <div
         className={`rounded-2xl p-6 border shadow-sm transition-all ${
-          theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'
+          theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-white/82 backdrop-blur-xl border-white/70 shadow-violet-200/35'
         }`}
       >
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -109,7 +109,7 @@ export const LyricsInput: React.FC = () => {
               className={`text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium border transition-colors ${
                 theme === 'dark'
                   ? 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-zinc-300'
-                  : 'bg-zinc-100 border-zinc-200 hover:bg-zinc-200 text-zinc-700'
+                  : 'bg-white/70 border-zinc-200/80 hover:bg-white text-zinc-700 shadow-sm'
               }`}
             >
               <Upload size={14} />
@@ -130,7 +130,7 @@ export const LyricsInput: React.FC = () => {
           className={`w-full p-4 rounded-xl font-mono text-sm border resize-none focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-500 transition-all ${
             theme === 'dark'
               ? 'bg-zinc-900/60 border-zinc-800 text-zinc-100 placeholder-zinc-600'
-              : 'bg-zinc-50 border-zinc-200 text-zinc-900 placeholder-zinc-450'
+              : 'bg-white/58 border-zinc-200/80 text-zinc-900 placeholder-zinc-500 shadow-inner shadow-zinc-200/40'
           }`}
         />
 
@@ -147,7 +147,7 @@ export const LyricsInput: React.FC = () => {
 
       <div
         className={`rounded-2xl p-5 border transition-all ${
-          theme === 'dark' ? 'bg-zinc-900/30 border-zinc-800/60' : 'bg-zinc-50/50 border-zinc-200/60'
+          theme === 'dark' ? 'bg-zinc-900/30 border-zinc-800/60' : 'bg-white/58 backdrop-blur-xl border-white/65'
         }`}
       >
         <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-2">

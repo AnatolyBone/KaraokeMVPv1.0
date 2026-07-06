@@ -46,6 +46,9 @@ export const supabase = isConfigured
             return Object.assign(Promise.resolve({ data: [], error: null }), chain);
           };
         }
+        if (prop === 'rpc') {
+          return async () => ({ data: null, error: null });
+        }
         return undefined;
       },
     }) as any);

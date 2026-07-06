@@ -16,6 +16,7 @@ export const KaraokeCatalog: React.FC = () => {
     setLines,
     setCover,
     setCoverColors,
+    setRawText,
     updateVideoStyle,
     setCurrentProjectTitle,
     cacheLrcLibTrack,
@@ -156,6 +157,11 @@ export const KaraokeCatalog: React.FC = () => {
     setLoadingTrackId(track.id);
 
     try {
+      setRawText('');
+      setLines([]);
+      setCover(null);
+      setCoverColors(null);
+
       let audioUrl = getStoragePublicUrl('published_audio', track.audio_storage_path);
       const coverUrl = getStoragePublicUrl('published_covers', track.cover_storage_path);
       let linesToUse = track.lines || [];
@@ -227,6 +233,7 @@ export const KaraokeCatalog: React.FC = () => {
         );
 
         if (confirmLocal) {
+          setRawText(linesToUse.map((line: any) => line.text).join('\n'));
           setLines(linesToUse);
           updateVideoStyle(track.video_style || {});
           setCurrentProjectTitle(`${track.songs.artist} - ${track.songs.title}`);
@@ -251,6 +258,7 @@ export const KaraokeCatalog: React.FC = () => {
         if (confirmCreate) {
           setAudio(audioUrl, `${track.songs.artist} - ${track.songs.title}.mp3`);
           setCurrentProjectTitle(`${track.songs.artist} - ${track.songs.title}`);
+          setRawText('');
           setLines([]);
           useKaraokeStore.setState({ step: 'input' });
         }
@@ -259,6 +267,7 @@ export const KaraokeCatalog: React.FC = () => {
 
       // Загружаем облачный караоке-трек
       setAudio(audioUrl, `${track.songs.artist} - ${track.songs.title}.mp3`);
+      setRawText(linesToUse.map((line: any) => line.text).join('\n'));
       setLines(linesToUse);
       updateVideoStyle(track.video_style || {});
       setCurrentProjectTitle(`${track.songs.artist} - ${track.songs.title}`);
@@ -346,7 +355,7 @@ export const KaraokeCatalog: React.FC = () => {
         </div>
       ) : (searchQuery.trim() ? searchResults : tracks).length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-zinc-800 rounded-2xl bg-zinc-950/10 text-zinc-500 gap-2">
-          <Disc size={36} className="stroke-[1.25] text-zinc-650" />
+          <Disc size={36} className="stroke-[1.25] text-zinc-700" />
           <span className="text-xs font-medium">
             {searchQuery
               ? (language === 'ru' ? 'Песни не найдены' : 'No songs found')
@@ -376,7 +385,7 @@ export const KaraokeCatalog: React.FC = () => {
                     {coverUrl ? (
                       <img src={coverUrl} alt="Cover" className="w-full h-full object-cover" />
                     ) : (
-                      <Music className="text-zinc-650" size={24} />
+                      <Music className="text-zinc-700" size={24} />
                     )}
 
                     {/* Play button overlay */}
@@ -404,7 +413,7 @@ export const KaraokeCatalog: React.FC = () => {
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-xs text-zinc-450 dark:text-zinc-550 truncate mt-0.5">
+                    <p className="text-xs text-zinc-500 dark:text-zinc-500 truncate mt-0.5">
                       {track.songs.artist}
                     </p>
                     {track.songs.album && (

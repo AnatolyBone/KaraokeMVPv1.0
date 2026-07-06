@@ -1,4 +1,4 @@
-import { RenderFrame, AnimationStrategy } from '../types';
+import { Canvas2DContext, RenderFrame, AnimationStrategy } from '../types';
 import { LyricLine } from '../../../types';
 import { getPrerenderedText, getCachedTextWidth } from '../textCache';
 import { createCanvas } from '../canvasHelper';
@@ -15,7 +15,7 @@ function formatTime(seconds: number): string {
 
 export class SplitScreenStrategy implements AnimationStrategy {
   render(
-    ctx: CanvasRenderingContext2D,
+    ctx: Canvas2DContext,
     frame: RenderFrame,
     _fromLine: LyricLine | null,
     _toLine: LyricLine | null,
@@ -94,7 +94,7 @@ export class SplitScreenStrategy implements AnimationStrategy {
     }
   }
 
-  private renderLeftPanel(ctx: CanvasRenderingContext2D, rect: { x: number; y: number; w: number; h: number }, frame: RenderFrame) {
+  private renderLeftPanel(ctx: Canvas2DContext, rect: { x: number; y: number; w: number; h: number }, frame: RenderFrame) {
     const { coverImg, coverColors, audioFileName, exportProgress, resolution, styleOptions, isCoverReady } = frame;
     
     const isVertical = styleOptions.aspectRatio === '9:16';
@@ -119,7 +119,10 @@ export class SplitScreenStrategy implements AnimationStrategy {
         ? (resolution === '1080p' ? 12 : 8)
         : -(resolution === '1080p' ? 90 : 60));
 
-    const coverKey = `${audioFileName}_${resolution}_${coverSize}_${isCoverReady ? 'ready' : 'fallback'}`;
+    const coverSourceKey = coverImg
+      ? `${(coverImg as any).width || 0}x${(coverImg as any).height || 0}`
+      : 'no-cover';
+    const coverKey = `${audioFileName}_${resolution}_${coverSize}_${coverSourceKey}_${isCoverReady ? 'ready' : 'fallback'}_${frame.quality || 'high'}`;
     
     ctx.imageSmoothingEnabled = true;
     (ctx as any).imageSmoothingQuality = 'high';
@@ -238,7 +241,7 @@ export class SplitScreenStrategy implements AnimationStrategy {
   }
 
   private renderRightPanel(
-    ctx: CanvasRenderingContext2D,
+    ctx: Canvas2DContext,
     rect: { x: number; y: number; w: number; h: number },
     frame: RenderFrame,
     transitionProgress: number,

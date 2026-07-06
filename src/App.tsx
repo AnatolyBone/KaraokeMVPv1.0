@@ -12,8 +12,7 @@ import { SidePanel } from './components/SidePanel';
 import { TimelineEditor } from './components/TimelineEditor';
 import { AuthSection } from './components/AuthSection';
 import { localization } from './utils/localization';
-import { Sun, Moon, Trash2, Type, Clock, Edit3, Zap, Settings, Shield, HelpCircle, ChevronLeft } from 'lucide-react';
-import { clearAudioFromDB, clearCoverFromDB } from './utils/db';
+import { Sun, Moon, Type, Clock, Edit3, Zap, Settings, Shield, HelpCircle, ChevronLeft } from 'lucide-react';
 import { supabase } from './services/supabaseClient';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { InteractiveTour } from './components/InteractiveTour';
@@ -25,7 +24,6 @@ const App: React.FC = () => {
     setStep,
     theme,
     toggleTheme,
-    clearAll,
     lines,
     audioUrl,
     language,
@@ -40,6 +38,7 @@ const App: React.FC = () => {
 
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [tourActive, setTourActive] = useState(false);
+  const [showIntro, setShowIntro] = useState(false);
 
   const dict = localization[language];
 
@@ -74,40 +73,42 @@ const App: React.FC = () => {
     // Загружаем настройки приложения
     useKaraokeStore.getState().fetchAppSettings();
 
-    const attemptAutoLogin = async () => {
-      if (!import.meta.env.VITE_SUPABASE_URL) return;
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          const saved = localStorage.getItem('karaoke_saved_credentials');
-          if (saved) {
-            const { email, password } = JSON.parse(saved);
-            const { error } = await supabase.auth.signInWithPassword({ email, password });
-            if (error) {
-              console.warn('Auto login failed (invalid credentials):', error.message);
-              localStorage.removeItem('karaoke_saved_credentials');
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error during auto login restore:', err);
-        localStorage.removeItem('karaoke_saved_credentials');
-      }
-    };
-    attemptAutoLogin();
+    localStorage.removeItem('karaoke_saved_credentials');
   }, []);
 
   // Автоматический запуск обучения при первом посещении
   useEffect(() => {
     const hasSeen = localStorage.getItem('hasSeenTour');
-    if (!hasSeen) {
+    if (!hasSeen && !showIntro) {
       const timer = setTimeout(() => {
         setTourActive(true);
         localStorage.setItem('hasSeenTour', 'true');
       }, 1500);
       return () => clearTimeout(timer);
     }
+  }, [showIntro]);
+
+  // Soft brand intro: shown rarely and skipped for reduced-motion users.
+  useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion) return;
+
+    const introKey = 'karaoke_spectral_intro_seen_at';
+    const lastSeen = Number(localStorage.getItem(introKey) || 0);
+    const twelveHours = 12 * 60 * 60 * 1000;
+
+    if (Date.now() - lastSeen > twelveHours) {
+      setShowIntro(true);
+      localStorage.setItem(introKey, String(Date.now()));
+    }
   }, []);
+
+  useEffect(() => {
+    if (!showIntro) return;
+
+    const timer = window.setTimeout(() => setShowIntro(false), 2600);
+    return () => window.clearTimeout(timer);
+  }, [showIntro]);
 
   const rawText = useKaraokeStore((state) => state.rawText);
 
@@ -182,38 +183,74 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const handleClearAll = async () => {
-    if (confirm(dict.clearConfirm)) {
-      clearAll();
-      try {
-        await clearAudioFromDB();
-        await clearCoverFromDB();
-      } catch (err) {
-        console.error('Failed to clear IndexedDB:', err);
-      }
-    }
-  };
-
   const isReadyForTiming = lines.length > 0;
+  const headerSegmentClass = theme === 'dark'
+    ? 'bg-black/35 border-white/15 shadow-black/30'
+    : 'bg-zinc-100/50 border-zinc-200/30 shadow-zinc-200/50';
+  const headerSegmentActiveClass = theme === 'dark'
+    ? 'bg-white text-violet-700 shadow-md shadow-black/15'
+    : 'bg-white text-violet-600 shadow-md shadow-violet-500/5';
+  const headerSegmentInactiveClass = theme === 'dark'
+    ? 'text-white/78 hover:text-white'
+    : 'text-zinc-500 hover:text-zinc-900';
 
   return (
-    <div className={`min-h-screen flex flex-col font-sans antialiased relative overflow-hidden transition-colors duration-355 ${
-      theme === 'dark' ? 'bg-zinc-950 text-zinc-50' : 'bg-zinc-50 text-zinc-900'
+    <div className={`min-h-screen flex flex-col font-sans antialiased relative overflow-hidden ${
+      theme === 'dark'
+        ? 'bg-[radial-gradient(circle_at_18%_8%,rgba(124,58,237,0.24),transparent_32%),radial-gradient(circle_at_82%_14%,rgba(236,72,153,0.18),transparent_34%),linear-gradient(180deg,#0d0818_0%,#080912_58%,#05070d_100%)] text-zinc-50'
+        : 'bg-[radial-gradient(circle_at_18%_8%,rgba(125,92,255,0.18),transparent_30%),radial-gradient(circle_at_78%_12%,rgba(255,92,178,0.13),transparent_31%),radial-gradient(circle_at_32%_55%,rgba(56,189,248,0.12),transparent_38%),linear-gradient(180deg,#fffaff_0%,#f5f0ff_44%,#f7fbff_100%)] text-zinc-900'
     }`}>
-      {/* Ambient background glows for dark mode */}
-      {theme === 'dark' && (
-        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-violet-600/10 blur-[120px] animate-blob" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-pink-600/10 blur-[120px] animate-blob animation-delay-2000" />
-          <div className="absolute top-[40%] left-[60%] w-[30%] h-[30%] rounded-full bg-fuchsia-600/5 blur-[100px] animate-blob animation-delay-4000" />
+      {showIntro && (
+        <div
+          className={`fixed inset-0 z-[100] pointer-events-none flex items-center justify-center overflow-hidden spectral-intro ${
+            theme === 'dark' ? 'bg-[#07070d]' : 'bg-[#fbfaff]'
+          }`}
+        >
+          <div className="spectral-intro-wave" />
+          <div className="relative z-10 flex flex-col items-center gap-3 px-6 text-center">
+            <div className="h-12 w-12 rounded-2xl border border-white/25 bg-white/10 backdrop-blur-xl shadow-2xl shadow-violet-500/20 flex items-center justify-center">
+              <Zap size={22} className="text-violet-300" />
+            </div>
+            <div>
+              <p className="text-sm font-extrabold tracking-tight text-white drop-shadow">
+                Karaoke LRC Maker
+              </p>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.28em] text-white/55">
+                {language === 'ru' ? 'готовим сцену' : 'warming the stage'}
+              </p>
+            </div>
+          </div>
         </div>
       )}
+
+      {/* Ambient spectral waves */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 spectral-ambient">
+        <div className="spectral-wave-field" />
+        <div className="spectral-ribbon spectral-ribbon-a" />
+        <div className="spectral-ribbon spectral-ribbon-b" />
+        <div className="spectral-ribbon spectral-ribbon-c" />
+        <div
+          className={`absolute inset-0 ${
+            theme === 'dark'
+              ? 'bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.055),transparent_34%)]'
+              : 'bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.34),transparent_40%)]'
+          }`}
+        />
+      </div>
+
+      <div
+        className={`absolute inset-0 pointer-events-none z-0 ${
+          theme === 'dark'
+            ? 'bg-[linear-gradient(180deg,rgba(5,7,13,0.05)_0%,rgba(5,7,13,0.32)_58%,rgba(5,7,13,0.72)_100%)]'
+            : 'bg-[linear-gradient(180deg,rgba(255,255,255,0)_0%,rgba(253,252,255,0.18)_54%,rgba(248,250,252,0.72)_100%)]'
+        }`}
+      />
 
       {/* Header */}
       <header className={`sticky top-0 z-40 border-b backdrop-blur-xl transition-all duration-300 relative ${
         theme === 'dark' 
-          ? 'bg-zinc-950/70 border-white/5 shadow-lg shadow-black/25' 
-          : 'bg-white/70 border-zinc-200/80 shadow-sm shadow-zinc-100/50'
+          ? 'bg-[#090913]/88 border-white/12 shadow-lg shadow-black/35' 
+          : 'bg-white/82 border-zinc-200/80 shadow-sm shadow-zinc-200/60'
       }`}>
         <div className="max-w-6xl mx-auto px-4 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           
@@ -293,27 +330,16 @@ const App: React.FC = () => {
                 <HelpCircle size={16} />
               </button>
 
-              <button
-                onClick={handleClearAll}
-                className={`p-2 rounded-xl border text-red-500 active:scale-95 transition-all ${
-                  theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'
-                }`}
-                title="Очистить всё"
-              >
-                <Trash2 size={16} />
-              </button>
             </div>
           </div>
 
           {/* Navigation Step Tabs (Desktop Only) */}
           {appMode === 'editor' && (
-            <nav id="editor-step-tabs" className="hidden lg:flex items-center gap-0.5 p-1 rounded-xl bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 backdrop-blur-md shrink-0">
+            <nav id="editor-step-tabs" className={`hidden lg:flex items-center gap-0.5 p-1 rounded-xl border backdrop-blur-md shrink-0 shadow-sm ${headerSegmentClass}`}>
               <button
                 onClick={() => setStep('input')}
-                className={`px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg text-[11px] xl:text-xs font-bold flex items-center gap-1 xl:gap-1.5 transition-all duration-300 ${
-                  step === 'input'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-450 shadow-md shadow-violet-500/5'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                className={`px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg text-[11px] xl:text-xs font-bold flex items-center gap-1 xl:gap-1.5 whitespace-nowrap transition-all duration-300 ${
+                  step === 'input' ? headerSegmentActiveClass : headerSegmentInactiveClass
                 }`}
               >
                 <Type size={13} />
@@ -328,10 +354,8 @@ const App: React.FC = () => {
                   }
                   setStep('timing');
                 }}
-                className={`px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg text-[11px] xl:text-xs font-bold flex items-center gap-1 xl:gap-1.5 transition-all duration-300 ${
-                  step === 'timing'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-455 shadow-md shadow-violet-500/5'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                className={`px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg text-[11px] xl:text-xs font-bold flex items-center gap-1 xl:gap-1.5 whitespace-nowrap transition-all duration-300 ${
+                  step === 'timing' ? headerSegmentActiveClass : headerSegmentInactiveClass
                 }`}
               >
                 <Clock size={13} />
@@ -346,10 +370,8 @@ const App: React.FC = () => {
                   }
                   setStep('edit');
                 }}
-                className={`px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg text-[11px] xl:text-xs font-bold flex items-center gap-1 xl:gap-1.5 transition-all duration-300 ${
-                  step === 'edit'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-600 dark:text-violet-450 shadow-md shadow-violet-500/5'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                className={`px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg text-[11px] xl:text-xs font-bold flex items-center gap-1 xl:gap-1.5 whitespace-nowrap transition-all duration-300 ${
+                  step === 'edit' ? headerSegmentActiveClass : headerSegmentInactiveClass
                 }`}
               >
                 <Edit3 size={13} />
@@ -361,13 +383,11 @@ const App: React.FC = () => {
           {/* Bottom Row on Mobile (Desktop Right Column): Switchers & Desktop-only Controls */}
           <div className="flex items-center justify-between lg:justify-end gap-2 w-full lg:w-auto mt-0.5 lg:mt-0 shrink-0">
             {/* Mode Switcher */}
-            <div id="app-mode-switcher" className="flex-1 lg:flex-none flex items-center gap-1 bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 p-1 rounded-xl backdrop-blur-md">
+            <div id="app-mode-switcher" className={`flex-1 lg:flex-none flex items-center gap-1 border p-1 rounded-xl backdrop-blur-md shadow-sm ${headerSegmentClass}`}>
               <button
                 onClick={() => setAppMode('karaoke')}
                 className={`flex-1 lg:flex-none px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
-                  appMode === 'karaoke'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-md shadow-violet-500/5'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                  appMode === 'karaoke' ? headerSegmentActiveClass : headerSegmentInactiveClass
                 }`}
                 title={dict.appModeKaraoke}
               >
@@ -376,9 +396,7 @@ const App: React.FC = () => {
               <button
                 onClick={() => setAppMode('editor')}
                 className={`flex-1 lg:flex-none px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
-                  appMode === 'editor'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-450 shadow-md shadow-violet-500/5'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                  appMode === 'editor' ? headerSegmentActiveClass : headerSegmentInactiveClass
                 }`}
                 title={dict.appModeEditor}
               >
@@ -387,13 +405,11 @@ const App: React.FC = () => {
             </div>
 
             {/* Language Switcher */}
-            <div className="flex items-center gap-1 bg-zinc-150/50 dark:bg-zinc-900/40 border border-zinc-200/30 dark:border-white/5 p-1 rounded-xl shrink-0 backdrop-blur-md">
+            <div className={`flex items-center gap-1 border p-1 rounded-xl shrink-0 backdrop-blur-md shadow-sm ${headerSegmentClass}`}>
               <button
                 onClick={() => setLanguage('ru')}
                 className={`px-2 py-1 xl:px-3 xl:py-1.5 rounded-lg font-bold text-[10px] transition-all duration-300 cursor-pointer ${
-                  language === 'ru'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-sm'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                  language === 'ru' ? headerSegmentActiveClass : headerSegmentInactiveClass
                 }`}
               >
                 RU
@@ -401,16 +417,14 @@ const App: React.FC = () => {
               <button
                 onClick={() => setLanguage('en')}
                 className={`px-2 py-1 xl:px-3 xl:py-1.5 rounded-lg font-bold text-[10px] transition-all duration-300 cursor-pointer ${
-                  language === 'en'
-                    ? 'bg-white dark:bg-zinc-800/80 text-violet-500 dark:text-violet-400 shadow-sm'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                  language === 'en' ? headerSegmentActiveClass : headerSegmentInactiveClass
                 }`}
               >
                 EN
               </button>
             </div>
 
-            {/* Desktop Actions: Theme, Clear & Admin (Hidden on mobile) */}
+            {/* Desktop Actions: Theme & Admin (Hidden on mobile) */}
             <div className="hidden lg:flex items-center gap-1.5 shrink-0">
               {userProfile?.role === 'admin' && (
                 <button
@@ -439,22 +453,13 @@ const App: React.FC = () => {
                 className={`p-1.5 xl:p-2 rounded-xl border hover:scale-105 transition-all ${
                   theme === 'dark'
                     ? 'bg-zinc-950 border-zinc-800 hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200'
-                    : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650 hover:text-zinc-800'
+                    : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-700 hover:text-zinc-800'
                 }`}
                 title={dict.tourStartBtn}
               >
                 <HelpCircle size={16} />
               </button>
 
-              <button
-                onClick={handleClearAll}
-                className={`p-1.5 xl:p-2 rounded-xl border hover:bg-red-500/10 text-red-500 hover:scale-105 transition-all ${
-                  theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'
-                }`}
-                title="Очистить всё"
-              >
-                <Trash2 size={16} />
-              </button>
             </div>
           </div>
 
@@ -515,7 +520,7 @@ const App: React.FC = () => {
       )}
 
       {/* Main Content Section */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 flex flex-col lg:flex-row gap-6 items-start">
+      <main className="relative z-10 flex-1 max-w-6xl w-full mx-auto px-4 py-6 flex flex-col lg:flex-row gap-6 items-start">
         <div className="flex-1 w-full flex flex-col gap-6">
           
           {/* Audio Loader is shown on all steps */}
@@ -531,15 +536,18 @@ const App: React.FC = () => {
                       onClick={() => {
                         useKaraokeStore.getState().setAudio(null, null);
                         useKaraokeStore.setState({
+                          rawText: '',
                           lines: [],
+                          currentIndex: 0,
+                          currentWordIndex: 0,
                           coverUrl: null,
                           coverColors: null,
                           currentProjectTitle: null,
                         });
                       }}
-                      className={`px-3.5 py-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all hover:scale-[1.02] active:scale-98 ${
+                      className={`px-3.5 py-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] ${
                         theme === 'dark'
-                          ? 'bg-zinc-950/60 border-zinc-800 text-zinc-350 hover:bg-zinc-950 hover:text-zinc-100 hover:border-zinc-700'
+                          ? 'bg-zinc-950/60 border-zinc-800 text-zinc-300 hover:bg-zinc-950 hover:text-zinc-100 hover:border-zinc-700'
                           : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 hover:border-zinc-300'
                       }`}
                     >
@@ -563,13 +571,13 @@ const App: React.FC = () => {
                 <div className="flex flex-col gap-6">
                   
                   {/* Sub-mode switcher */}
-                  <div className="flex items-center justify-between p-1.5 rounded-2xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-250/10 max-w-md mx-auto w-full">
+                  <div className="flex items-center justify-between p-1.5 rounded-2xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/10 max-w-md mx-auto w-full">
                     <button
                       onClick={() => setSubMode('sync')}
                       className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                         subMode === 'sync'
-                          ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-450 shadow-md scale-[1.02]'
-                          : 'text-zinc-500 hover:text-zinc-350'
+                          ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-md scale-[1.02]'
+                          : 'text-zinc-500 hover:text-zinc-300'
                       }`}
                     >
                       <Zap size={14} />
@@ -580,8 +588,8 @@ const App: React.FC = () => {
                       onClick={() => setSubMode('tune')}
                       className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                         subMode === 'tune'
-                          ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-455 shadow-md scale-[1.02]'
-                          : 'text-zinc-500 hover:text-zinc-350'
+                          ? 'bg-white dark:bg-zinc-900 text-violet-600 dark:text-violet-400 shadow-md scale-[1.02]'
+                          : 'text-zinc-500 hover:text-zinc-300'
                       }`}
                     >
                       <Settings size={14} />
@@ -589,11 +597,11 @@ const App: React.FC = () => {
                     </button>
                   </div>
 
-                  {/* Mode A: Timing Sync focuses strictly on recording and listening */}
+                    {/* Mode A: Timing Sync focuses strictly on recording and listening */}
                   {subMode === 'sync' ? (
                     <div className="flex flex-col gap-6 animate-fade-in">
                       <TimingPanel />
-                      <KaraokePreview />
+                      <KaraokePreview showQuickShift={false} />
                     </div>
                   ) : (
                     /* Mode B: Fine Tuning focuses strictly on visual scaling and adjustments */
@@ -625,7 +633,7 @@ const App: React.FC = () => {
       </main>
 
       {/* Footer */}
-      <footer className={`py-4 text-center text-[11px] border-t transition-colors ${
+      <footer className={`relative z-10 py-4 text-center text-[11px] border-t transition-colors ${
         theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-500' : 'bg-zinc-100 border-zinc-200 text-zinc-400'
       }`}>
         <div className="max-w-6xl mx-auto px-4">

@@ -37,6 +37,7 @@ export const LyricsTable: React.FC = () => {
   const [showSplitDialog, setShowSplitDialog] = useState<string | null>(null);
 
   const dict = localization[language];
+  const secLabel = language === 'ru' ? 'сек' : 'sec';
 
   const toggleExpand = (id: string) => {
     setExpandedLines((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -133,7 +134,7 @@ export const LyricsTable: React.FC = () => {
                   historyIndex <= 0
                     ? 'opacity-35 cursor-not-allowed'
                     : theme === 'dark'
-                    ? 'hover:bg-zinc-800 text-zinc-350'
+                    ? 'hover:bg-zinc-800 text-zinc-300'
                     : 'hover:bg-zinc-200 text-zinc-750'
                 }`}
                 title="Отменить действие"
@@ -147,7 +148,7 @@ export const LyricsTable: React.FC = () => {
                   historyIndex >= history.length - 1
                     ? 'opacity-35 cursor-not-allowed'
                     : theme === 'dark'
-                    ? 'hover:bg-zinc-800 text-zinc-350'
+                    ? 'hover:bg-zinc-800 text-zinc-300'
                     : 'hover:bg-zinc-200 text-zinc-750'
                 }`}
                 title="Повторить действие"
@@ -179,26 +180,26 @@ export const LyricsTable: React.FC = () => {
               onClick={() => shiftAllTimings(-0.5)}
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/25 transition-colors"
             >
-              -0.5 сек
+              -0.5 {secLabel}
             </button>
             <button
               onClick={() => shiftAllTimings(-0.2)}
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/25 transition-colors"
             >
-              -0.2 сек
+              -0.2 {secLabel}
             </button>
             <div className="h-5 w-[1px] bg-zinc-200 dark:bg-zinc-800 mx-1" />
             <button
               onClick={() => shiftAllTimings(0.2)}
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/25 transition-colors"
             >
-              +0.2 сек
+              +0.2 {secLabel}
             </button>
             <button
               onClick={() => shiftAllTimings(0.5)}
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/25 transition-colors"
             >
-              +0.5 сек
+              +0.5 {secLabel}
             </button>
           </div>
         </div>
@@ -326,7 +327,7 @@ export const LyricsTable: React.FC = () => {
                           {line.words.length > 1 && (
                             <button
                               onClick={() => setShowSplitDialog(showSplitDialog === line.id ? null : line.id)}
-                              className={`p-1.5 rounded hover:bg-zinc-500/10 text-zinc-450 hover:text-violet-500 transition-colors`}
+                              className={`p-1.5 rounded hover:bg-zinc-500/10 text-zinc-500 hover:text-violet-500 transition-colors`}
                               title={dict.editorSplitLabel}
                             >
                               <Scissors size={13} />
@@ -357,9 +358,9 @@ export const LyricsTable: React.FC = () => {
                                 className={`p-1 rounded border transition-colors ${
                                   theme === 'dark'
                                     ? 'bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-400'
-                                    : 'bg-zinc-50 hover:bg-zinc-100 border-zinc-200 text-zinc-650'
+                                    : 'bg-zinc-50 hover:bg-zinc-100 border-zinc-200 text-zinc-700'
                                 }`}
-                                title="-0.1 сек"
+                                title={`-0.1 ${secLabel}`}
                               >
                                 <Minus size={11} />
                               </button>
@@ -371,7 +372,7 @@ export const LyricsTable: React.FC = () => {
                                     ? 'bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-400'
                                     : 'bg-zinc-50 hover:bg-zinc-100 border-zinc-200 text-zinc-655'
                                 }`}
-                                title="+0.1 сек"
+                                title={`+0.1 ${secLabel}`}
                               >
                                 <Plus size={11} />
                               </button>
@@ -417,7 +418,7 @@ export const LyricsTable: React.FC = () => {
                     {/* Toggle word-by-word timing edit view */}
                     {isExpanded && (
                       <tr>
-                        <td colSpan={5} className="px-6 py-3 bg-zinc-500/[0.01] border-t border-b border-zinc-250 dark:border-zinc-850">
+                        <td colSpan={5} className="px-6 py-3 bg-zinc-500/[0.01] border-t border-b border-zinc-200 dark:border-zinc-800">
                           <div className="space-y-2">
                             <h5 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 flex items-center gap-1">
                               <HelpCircle size={11} /> {dict.editorMicrotiming}
@@ -432,13 +433,13 @@ export const LyricsTable: React.FC = () => {
                                       : 'bg-zinc-50 border-zinc-200/80'
                                   }`}
                                 >
-                                  <span className="font-bold text-zinc-500 dark:text-zinc-450">{word.text}:</span>
+                                  <span className="font-bold text-zinc-500 dark:text-zinc-500">{word.text}:</span>
                                   <input
                                     type="text"
                                     placeholder="--:--.--"
                                     value={word.time !== null ? formatTime(word.time) : ''}
                                     onChange={(e) => handleWordTimeChange(line.id, word.id, e.target.value)}
-                                    className="w-16 text-center px-1 py-0.5 font-mono text-[10px] bg-transparent border-b border-zinc-350 dark:border-zinc-800 focus:outline-none focus:border-violet-500 text-violet-500 dark:text-violet-400 font-semibold"
+                                    className="w-16 text-center px-1 py-0.5 font-mono text-[10px] bg-transparent border-b border-zinc-300 dark:border-zinc-800 focus:outline-none focus:border-violet-500 text-violet-500 dark:text-violet-400 font-semibold"
                                   />
                                   {word.time !== null && (
                                     <button
@@ -460,7 +461,7 @@ export const LyricsTable: React.FC = () => {
                     {/* Split Line Dialog inside the row */}
                     {showSplitDialog === line.id && (
                       <tr>
-                        <td colSpan={5} className="px-6 py-3 bg-zinc-500/[0.02] border-t border-b border-zinc-250 dark:border-zinc-850 text-xs">
+                        <td colSpan={5} className="px-6 py-3 bg-zinc-500/[0.02] border-t border-b border-zinc-200 dark:border-zinc-800 text-xs">
                           <div className="flex flex-col gap-2">
                             <div className="font-bold uppercase tracking-wider text-[10px] text-zinc-400 dark:text-zinc-500 flex items-center gap-1">
                               <Scissors size={12} className="text-violet-500" /> {dict.editorSplit}

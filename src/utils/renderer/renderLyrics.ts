@@ -1,10 +1,10 @@
-import { RenderFrame } from './types';
+import { Canvas2DContext, RenderFrame } from './types';
 import { LyricLine } from '../../types';
 import { calculateSubtitlesLayout } from './layout/calculateLayout';
 import { getAnimationStrategy } from './strategies';
 
 export function renderLyrics(
-  ctx: CanvasRenderingContext2D,
+  ctx: Canvas2DContext,
   frame: RenderFrame,
   timedLines: LyricLine[]
 ): void {

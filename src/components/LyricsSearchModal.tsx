@@ -27,48 +27,55 @@ export const LyricsSearchModal: React.FC<LyricsSearchModalProps> = ({ isOpen, on
 
   const dict = localization[language];
 
-  // Автозаполнение запроса при открытии модального окна
-  useEffect(() => {
-    if (isOpen) {
-      if (trackMetadata && (trackMetadata.artist || trackMetadata.title)) {
-        setQuery(
-          trackMetadata.artist
-            ? `${trackMetadata.artist} - ${trackMetadata.title}`
-            : trackMetadata.title || ''
-        );
-      } else if (audioFileName) {
-        const cleanName = audioFileName.replace(/\.[^/.]+$/, '');
-        setQuery(cleanName);
-      } else {
-        setQuery('');
-      }
-      setResults([]);
-      setError(null);
-    }
-  }, [isOpen, trackMetadata, audioFileName]);
-
-  if (!isOpen) return null;
-
-  const handleSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!query.trim()) return;
+  const runSearch = async (searchQuery: string) => {
+    const trimmedQuery = searchQuery.trim();
+    if (!trimmedQuery) return;
 
     setLoading(true);
     setError(null);
     setResults([]);
 
     try {
-      const data = await searchAllLyrics(query.trim());
+      const data = await searchAllLyrics(trimmedQuery);
       setResults(data);
       if (data.length === 0) {
         setError(dict.searchNoResults);
       }
     } catch (err: any) {
+      console.warn('[Manual lyrics search] failed', err);
       setError(dict.searchError);
     } finally {
       setLoading(false);
     }
   };
+
+  // Автозаполнение запроса при открытии модального окна
+  useEffect(() => {
+    if (isOpen) {
+      let nextQuery = '';
+      if (trackMetadata && (trackMetadata.artist || trackMetadata.title)) {
+        nextQuery = trackMetadata.artist
+          ? `${trackMetadata.artist} - ${trackMetadata.title || ''}`
+          : trackMetadata.title || '';
+      } else if (audioFileName) {
+        nextQuery = audioFileName.replace(/\.[^/.]+$/, '');
+      }
+
+      setQuery(nextQuery);
+      setResults([]);
+      setError(null);
+      if (nextQuery.trim()) {
+        runSearch(nextQuery);
+      }
+    }
+  }, [isOpen, trackMetadata, audioFileName, dict.searchNoResults, dict.searchError]);
+
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    await runSearch(query);
+  };
+
+  if (!isOpen) return null;
 
   const handleSelectTrack = (track: LyricsProviderResult) => {
     // Импортируем тайминги
@@ -76,6 +83,7 @@ export const LyricsSearchModal: React.FC<LyricsSearchModalProps> = ({ isOpen, on
       const parsed = parseLRC(track.syncedLyrics);
       setLines(parsed);
       setRawText(track.syncedLyrics);
+      setStep('timing');
       alert(dict.searchImportSuccess);
       onClose();
     } else if (track.plainLyrics) {

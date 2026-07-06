@@ -46,16 +46,6 @@ const yieldToMain = () => new Promise<void>(resolve => {
   channel.port2.postMessage(null);
 });
 
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  radius: number;
-  alpha: number;
-  color?: string;
-}
-
 self.onmessage = async (e: MessageEvent) => {
   const { action } = e.data;
   if (action !== 'start') return;
@@ -142,26 +132,27 @@ self.onmessage = async (e: MessageEvent) => {
     };
 
     if (typeof VideoEncoder.isConfigSupported === 'function') {
-      const support = await VideoEncoder.isConfigSupported(videoConfig);
-      if (!support.supported) {
-        if (format === 'mp4') {
-          const profiles = ['avc1.640034', 'avc1.640033', 'avc1.4d0033', 'avc1.42e033'];
-          let configured = false;
-          for (const prof of profiles) {
-            const tempConf = { ...videoConfig, codec: prof };
-            const tempSup = await VideoEncoder.isConfigSupported(tempConf);
-            if (tempSup.supported) {
-              videoConfig.codec = prof;
-              configured = true;
-              break;
-            }
-          }
-          if (!configured) {
-            throw new Error('No supported H.264 profile found for hardware encoding.');
-          }
-        } else {
-          throw new Error(`Codec ${videoConfig.codec} is not supported.`);
+      const codecCandidates = format === 'mp4'
+        ? ['avc1.640034', 'avc1.640033', 'avc1.4d0033', 'avc1.42e033']
+        : ['vp09.00.41.08', 'vp09.00.40.08', 'vp09.00.10.08', 'vp8'];
+
+      let configured = false;
+      for (const codec of codecCandidates) {
+        const candidateConfig = { ...videoConfig, codec };
+        const support = await VideoEncoder.isConfigSupported(candidateConfig);
+        if (support.supported) {
+          videoConfig.codec = codec;
+          configured = true;
+          break;
         }
+      }
+
+      if (!configured) {
+        throw new Error(
+          format === 'mp4'
+            ? 'No supported H.264 profile found for offline MP4 export.'
+            : 'No supported VP9/VP8 codec found for offline WebM export.'
+        );
       }
     }
 
@@ -205,12 +196,14 @@ self.onmessage = async (e: MessageEvent) => {
       });
       outputType = 'video/mp4';
     } else {
+      const webmVideoCodec = videoConfig.codec === 'vp8' ? 'V_VP8' : 'V_VP9';
       muxer = new WebmMuxer({
         target: new WebmTarget(),
         video: {
-          codec: 'V_VP9',
+          codec: webmVideoCodec,
           width: finalWidth,
           height: finalHeight,
+          frameRate: fps,
         },
         audio: {
           codec: 'A_OPUS',
@@ -267,6 +260,8 @@ self.onmessage = async (e: MessageEvent) => {
       renderLyrics(ctx, renderFrame, timedLines);
     };
 
+    self.postMessage({ type: 'status', status: 'prewarming' });
+
     // Pre-warm caches
     const cacheWarmCount = Math.min(timedLines.length, 5);
     for (let i = 0; i < cacheWarmCount; i++) {
@@ -276,6 +271,9 @@ self.onmessage = async (e: MessageEvent) => {
     drawFrame(0);
 
     let audioSampleOffset = 0;
+    let lastProgressPostTime = 0;
+
+    self.postMessage({ type: 'status', status: 'encoding' });
 
     while (exportFrame < totalFrames && !isAborted) {
       if ((videoEncoder?.state as string) === 'closed') {
@@ -360,7 +358,11 @@ self.onmessage = async (e: MessageEvent) => {
         }
       }
 
-      self.postMessage({ type: 'progress', percent: exportFrame / totalFrames, seconds: time });
+      const now = performance.now();
+      if (now - lastProgressPostTime > 120 || exportFrame === totalFrames - 1) {
+        self.postMessage({ type: 'progress', percent: exportFrame / totalFrames, seconds: time });
+        lastProgressPostTime = now;
+      }
       exportFrame++;
 
       await yieldToMain();
@@ -404,7 +406,7 @@ self.onmessage = async (e: MessageEvent) => {
     muxer.finalize();
 
     const finalBuffer = muxer.target.buffer;
-    self.postMessage({ type: 'complete', buffer: finalBuffer, outputType }, [finalBuffer]);
+    (self as any).postMessage({ type: 'complete', buffer: finalBuffer, outputType }, [finalBuffer]);
 
   } catch (error: any) {
     console.error('Worker execution failed:', error);

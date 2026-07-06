@@ -309,14 +309,14 @@ export const ExportPanel: React.FC = () => {
             className={`w-full p-4 rounded-xl font-mono text-xs border resize-none focus:outline-none transition-all duration-300 ${
               theme === 'dark'
                 ? 'bg-zinc-950/30 backdrop-blur-md border-white/5 text-zinc-300'
-                : 'bg-zinc-55 border-zinc-200 text-zinc-800'
+                : 'bg-zinc-50 border-zinc-200 text-zinc-800'
             }`}
           />
 
           {/* Cloud Publishing Card */}
           <div className={`mt-6 rounded-2xl border p-5 transition-all duration-300 ${
             theme === 'dark'
-              ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 text-zinc-150 hover:border-violet-500/20 shadow-xl shadow-black/10'
+              ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 text-zinc-100 hover:border-violet-500/20 shadow-xl shadow-black/10'
               : 'bg-zinc-50 border-zinc-200 text-zinc-900'
           }`}>
             <div className="flex items-center gap-2 mb-3">
@@ -326,7 +326,7 @@ export const ExportPanel: React.FC = () => {
               </h4>
             </div>
 
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-450 mb-4 leading-relaxed">
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-500 mb-4 leading-relaxed">
               {language === 'ru'
                 ? 'Опубликуйте эту песню в общий каталог, чтобы вы и другие пользователи могли мгновенно запустить её в режиме «Караоке».'
                 : 'Publish this track to the shared catalog so you and other users can instantly sing it in Karaoke mode.'}
@@ -346,7 +346,7 @@ export const ExportPanel: React.FC = () => {
                 {/* Inputs grid */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="space-y-1">
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-550">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-500">
                       {language === 'ru' ? 'Исполнитель' : 'Artist'}
                     </label>
                     <input
@@ -360,7 +360,7 @@ export const ExportPanel: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-550">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-500">
                       {language === 'ru' ? 'Название трека' : 'Track Title'}
                     </label>
                     <input
@@ -374,7 +374,7 @@ export const ExportPanel: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-550">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-500">
                       {language === 'ru' ? 'Альбом (опционально)' : 'Album (optional)'}
                     </label>
                     <input
@@ -400,10 +400,10 @@ export const ExportPanel: React.FC = () => {
                       className="rounded text-violet-650 focus:ring-violet-500 h-4 w-4 border-zinc-300 dark:border-zinc-800"
                     />
                     <div className="flex flex-col">
-                      <span className={!hasLocalAudio ? 'text-zinc-450 dark:text-zinc-650 line-through' : 'font-semibold text-zinc-800 dark:text-zinc-250'}>
+                      <span className={!hasLocalAudio ? 'text-zinc-500 dark:text-zinc-700 line-through' : 'font-semibold text-zinc-800 dark:text-zinc-200'}>
                         {language === 'ru' ? 'Загрузить аудиофайл на сервер' : 'Upload audio file to server'}
                       </span>
-                      <span className="text-[9px] text-zinc-400 dark:text-zinc-550">
+                      <span className="text-[9px] text-zinc-400 dark:text-zinc-500">
                         {hasLocalAudio
                           ? (language === 'ru' ? 'Позволит запускать трек онлайн без локальных файлов' : 'Allows playing the song online without local files')
                           : (language === 'ru' ? 'Локальный аудиофайл не найден в кэше' : 'Local audio file not found in cache')}
@@ -420,10 +420,10 @@ export const ExportPanel: React.FC = () => {
                       className="rounded text-violet-650 focus:ring-violet-500 h-4 w-4 border-zinc-300 dark:border-zinc-800"
                     />
                     <div className="flex flex-col">
-                      <span className={!hasLocalCover ? 'text-zinc-450 dark:text-zinc-650 line-through' : 'font-semibold text-zinc-800 dark:text-zinc-250'}>
+                      <span className={!hasLocalCover ? 'text-zinc-500 dark:text-zinc-700 line-through' : 'font-semibold text-zinc-800 dark:text-zinc-200'}>
                         {language === 'ru' ? 'Загрузить обложку на сервер' : 'Upload cover art to server'}
                       </span>
-                      <span className="text-[9px] text-zinc-400 dark:text-zinc-550">
+                      <span className="text-[9px] text-zinc-400 dark:text-zinc-500">
                         {hasLocalCover
                           ? (language === 'ru' ? 'Добавит изображение обложки в карточку каталога' : 'Adds cover image to the catalog card')
                           : (language === 'ru' ? 'Изображение обложки отсутствует' : 'Cover image not found')}
@@ -439,7 +439,7 @@ export const ExportPanel: React.FC = () => {
                     disabled={publishing}
                     className={`px-4.5 py-2.5 rounded-xl font-extrabold text-xs flex items-center gap-2 shadow-md transition-all duration-300 cursor-pointer ${
                       publishing
-                        ? 'bg-zinc-200 text-zinc-455 dark:bg-zinc-800 dark:text-zinc-650 cursor-wait'
+                        ? 'bg-zinc-200 text-zinc-455 dark:bg-zinc-800 dark:text-zinc-700 cursor-wait'
                         : 'bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-500 hover:opacity-95 text-white shadow-lg shadow-violet-500/10 hover:scale-[1.015] active:scale-95 border border-violet-500/20'
                     }`}
                   >

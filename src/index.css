@@ -1,9 +1,15 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    text-rendering: geometricPrecision;
+  }
+
   body {
     background-color: #09090b;
     color: #f4f4f5;
+    min-width: 320px;
   }
 }
 
@@ -52,4 +58,213 @@
 
 .animation-delay-4000 {
   animation-delay: 4s;
+}
+
+@keyframes spectral-drift-a {
+  0%, 100% {
+    transform: translate3d(-8%, -4%, 0) rotate(-8deg) scaleX(1);
+  }
+  50% {
+    transform: translate3d(4%, 7%, 0) rotate(-2deg) scaleX(1.08);
+  }
+}
+
+@keyframes spectral-drift-b {
+  0%, 100% {
+    transform: translate3d(7%, 8%, 0) rotate(9deg) scaleX(1);
+  }
+  50% {
+    transform: translate3d(-5%, -5%, 0) rotate(4deg) scaleX(1.1);
+  }
+}
+
+@keyframes spectral-wave-breathe {
+  0%, 100% {
+    transform: translate3d(-2%, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, 3%, 0) scale(1.04);
+  }
+}
+
+@keyframes spectral-intro-out {
+  0% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes spectral-intro-wave {
+  0% {
+    transform: translate3d(-18%, 10%, 0) rotate(-8deg) scale(0.85);
+    filter: blur(18px) saturate(1.1);
+  }
+  55% {
+    transform: translate3d(4%, -2%, 0) rotate(-2deg) scale(1.02);
+    filter: blur(12px) saturate(1.25);
+  }
+  100% {
+    transform: translate3d(18%, -8%, 0) rotate(4deg) scale(1.08);
+    filter: blur(18px) saturate(1.05);
+  }
+}
+
+.spectral-ambient {
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+
+.dark .spectral-ambient {
+  opacity: 1;
+}
+
+.spectral-wave-field {
+  position: absolute;
+  inset: -22% -18% auto -18%;
+  height: min(720px, 82vh);
+  opacity: 0.52;
+  background:
+    radial-gradient(42% 48% at 16% 44%, rgba(59, 130, 246, 0.26), transparent 72%),
+    radial-gradient(36% 44% at 42% 34%, rgba(168, 85, 247, 0.32), transparent 74%),
+    radial-gradient(40% 46% at 68% 38%, rgba(236, 72, 153, 0.26), transparent 74%),
+    radial-gradient(34% 42% at 88% 54%, rgba(45, 212, 191, 0.13), transparent 72%);
+  filter: blur(56px) saturate(1.18);
+  mask-image: linear-gradient(180deg, transparent 0%, black 18%, black 62%, transparent 100%);
+  animation: spectral-wave-breathe 28s ease-in-out infinite;
+  will-change: transform;
+}
+
+.dark .spectral-wave-field {
+  opacity: 0.78;
+}
+
+:root:not(.dark) .spectral-wave-field {
+  opacity: 0.95;
+  background:
+    radial-gradient(44% 50% at 12% 42%, rgba(56, 189, 248, 0.3), transparent 72%),
+    radial-gradient(38% 46% at 42% 34%, rgba(167, 139, 250, 0.4), transparent 74%),
+    radial-gradient(42% 48% at 70% 38%, rgba(244, 114, 182, 0.3), transparent 74%),
+    radial-gradient(36% 44% at 90% 54%, rgba(45, 212, 191, 0.2), transparent 72%);
+  filter: blur(58px) saturate(1.12);
+}
+
+.spectral-ribbon {
+  position: absolute;
+  left: 50%;
+  width: min(1320px, 142vw);
+  height: clamp(180px, 25vw, 340px);
+  border-radius: 999px;
+  filter: blur(42px) saturate(1.12);
+  transform-origin: center;
+  opacity: 0.44;
+  mask-image:
+    linear-gradient(90deg, transparent 0%, black 18%, black 82%, transparent 100%),
+    linear-gradient(180deg, transparent 0%, black 24%, black 66%, transparent 100%);
+  mask-composite: intersect;
+  will-change: transform;
+}
+
+.spectral-ribbon-a {
+  top: 7%;
+  margin-left: -62vw;
+  background:
+    radial-gradient(62% 120% at 16% 45%, rgba(14, 165, 233, 0.52), transparent 60%),
+    radial-gradient(52% 100% at 46% 45%, rgba(168, 85, 247, 0.58), transparent 64%),
+    radial-gradient(50% 100% at 76% 52%, rgba(244, 63, 94, 0.42), transparent 60%);
+  animation: spectral-drift-a 18s ease-in-out infinite;
+}
+
+.spectral-ribbon-b {
+  top: 31%;
+  margin-left: -44vw;
+  background:
+    radial-gradient(60% 120% at 18% 50%, rgba(16, 185, 129, 0.36), transparent 62%),
+    radial-gradient(50% 100% at 52% 48%, rgba(217, 70, 239, 0.48), transparent 66%),
+    radial-gradient(54% 100% at 82% 50%, rgba(59, 130, 246, 0.46), transparent 64%);
+  opacity: 0.46;
+  animation: spectral-drift-b 22s ease-in-out infinite;
+}
+
+.spectral-ribbon-c {
+  bottom: 4%;
+  margin-left: -66vw;
+  background:
+    radial-gradient(58% 118% at 22% 52%, rgba(251, 146, 60, 0.26), transparent 62%),
+    radial-gradient(48% 100% at 54% 48%, rgba(236, 72, 153, 0.34), transparent 66%),
+    radial-gradient(48% 100% at 78% 48%, rgba(45, 212, 191, 0.3), transparent 64%);
+  opacity: 0.34;
+  animation: spectral-drift-a 26s ease-in-out infinite reverse;
+}
+
+.dark .spectral-ribbon-a {
+  opacity: 0.58;
+}
+
+.dark .spectral-ribbon-b {
+  opacity: 0.42;
+}
+
+.dark .spectral-ribbon-c {
+  opacity: 0.34;
+}
+
+:root:not(.dark) .spectral-ribbon {
+  filter: blur(46px) saturate(1.04);
+}
+
+:root:not(.dark) .spectral-ribbon-a {
+  opacity: 0.62;
+  background:
+    radial-gradient(62% 120% at 16% 45%, rgba(14, 165, 233, 0.38), transparent 62%),
+    radial-gradient(52% 100% at 46% 45%, rgba(168, 85, 247, 0.48), transparent 66%),
+    radial-gradient(50% 100% at 76% 52%, rgba(244, 63, 94, 0.32), transparent 62%);
+}
+
+:root:not(.dark) .spectral-ribbon-b {
+  opacity: 0.48;
+  background:
+    radial-gradient(60% 120% at 18% 50%, rgba(16, 185, 129, 0.26), transparent 64%),
+    radial-gradient(50% 100% at 52% 48%, rgba(217, 70, 239, 0.36), transparent 68%),
+    radial-gradient(54% 100% at 82% 50%, rgba(59, 130, 246, 0.34), transparent 66%);
+}
+
+:root:not(.dark) .spectral-ribbon-c {
+  opacity: 0.38;
+  background:
+    radial-gradient(58% 118% at 22% 52%, rgba(251, 146, 60, 0.22), transparent 64%),
+    radial-gradient(48% 100% at 54% 48%, rgba(236, 72, 153, 0.3), transparent 68%),
+    radial-gradient(48% 100% at 78% 48%, rgba(45, 212, 191, 0.26), transparent 66%);
+}
+
+.spectral-intro {
+  animation: spectral-intro-out 2.6s ease forwards;
+}
+
+.spectral-intro-wave {
+  position: absolute;
+  width: min(860px, 120vw);
+  height: min(320px, 54vw);
+  border-radius: 999px;
+  background:
+    radial-gradient(35% 85% at 15% 50%, rgba(14, 165, 233, 0.92), transparent 62%),
+    radial-gradient(42% 95% at 45% 48%, rgba(168, 85, 247, 0.96), transparent 66%),
+    radial-gradient(42% 90% at 74% 52%, rgba(236, 72, 153, 0.94), transparent 63%),
+    radial-gradient(28% 80% at 96% 54%, rgba(251, 146, 60, 0.86), transparent 58%);
+  mask-image: linear-gradient(90deg, transparent 0%, black 14%, black 86%, transparent 100%);
+  animation: spectral-intro-wave 2.6s ease-in-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob,
+  .spectral-ribbon,
+  .spectral-wave-field,
+  .spectral-intro,
+  .spectral-intro-wave {
+    animation: none !important;
+  }
 }

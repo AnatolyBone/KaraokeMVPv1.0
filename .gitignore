@@ -26,3 +26,6 @@ pnpm-debug.log*
 
 # Папка бэкапов и логов AI-агента (если есть)
 .gemini/
+
+.vercel
+.env*

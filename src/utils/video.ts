@@ -6,23 +6,8 @@ import { renderVisualizer } from './renderer/renderVisualizer';
 import { renderLyrics } from './renderer/renderLyrics';
 import { clearTextWidthCache } from './renderer/textCache';
 
-// Импортируем современные оффлайн-муксеры для WebCodecs
-import { Muxer as Mp4Muxer, ArrayBufferTarget as Mp4Target } from 'mp4-muxer';
-import { Muxer as WebmMuxer, ArrayBufferTarget as WebmTarget } from 'webm-muxer';
-
 // @ts-ignore
 import ExportWorker from './renderer/export.worker?worker&inline';
-
-// Хелпер для обхода жесткого троттлинга setTimeout в фоновых вкладках браузера.
-// MessageChannel не замедляется до 1 секунды при сворачивании окна!
-const yieldToMain = () => new Promise<void>(resolve => {
-  const channel = new MessageChannel();
-  channel.port1.onmessage = () => resolve();
-  channel.port2.postMessage(null);
-});
-
-// Реальный sleep через setTimeout — даёт GPU-кодеку время обработать очередь
-const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 interface ExportOptions {
   lines: LyricLine[];
@@ -46,7 +31,7 @@ interface ExportOptions {
   onComplete: (blob: Blob) => void;
   onError: (error: Error) => void;
   quality?: 'low' | 'medium' | 'high' | 'ultra';
-  fps?: 30 | 60;
+  fps?: 24 | 30 | 60;
   bitrateKbps?: number;
 }
 
@@ -75,6 +60,20 @@ export function exportVideo(options: ExportOptions): void {
         : 'Your browser does not support offline codecs. Using real-time recording.'
     );
     exportVideoMediaRecorder(options);
+    return;
+  }
+
+  if (options.format === 'webm') {
+    exportVideoWebCodecs(options, 'prefer-software').catch((webmErr) => {
+      console.warn('Cinema Engine: offline WebM encoder failed. Falling back to real-time MediaRecorder.', webmErr.message);
+      options.onWarning?.(
+        options.language === 'ru'
+          ? `Офлайн WebM не поддержался в этом браузере (${webmErr.message}). Пробуем запись в реальном времени...`
+          : `Offline WebM is not supported in this browser (${webmErr.message}). Falling back to real-time recording...`
+      );
+      options.onStatus?.('recording');
+      exportVideoMediaRecorder(options);
+    });
     return;
   }
 
@@ -224,57 +223,29 @@ async function exportVideoWebCodecs(
   // --- ШАГ 2: ПОДГОТОВКА ОБЛОЖКИ (ImageBitmap) ---
   let coverBitmap: ImageBitmap | null = null;
   if (coverUrl) {
-    const coverCanvasSize = styleOptions.aspectRatio === '9:16' 
-      ? (resolution === '1080p' ? 240 : 160) 
-      : (resolution === '1080p' ? 120 : 80);
-    
-    const coverCanvas = document.createElement('canvas');
-    coverCanvas.width = coverCanvasSize;
-    coverCanvas.height = coverCanvasSize;
-    const coverCtx = coverCanvas.getContext('2d');
-    
-    if (coverCtx) {
-      const resolvedCoverUrl = await (async () => {
-        if (!coverUrl.startsWith('blob:')) return coverUrl;
-        try {
-          const resp = await fetch(coverUrl);
-          const blob = await resp.blob();
-          return await new Promise<string>((res, rej) => {
-            const reader = new FileReader();
-            reader.onload = () => res(reader.result as string);
-            reader.onerror = rej;
-            reader.readAsDataURL(blob);
-          });
-        } catch {
-          return coverUrl;
-        }
-      })();
-
+    try {
+      const response = await fetch(coverUrl);
+      const blob = await response.blob();
+      coverBitmap = await createImageBitmap(blob);
+    } catch {
       const img = new Image();
       await new Promise<void>((resolve) => {
         img.onload = () => {
-          coverCtx.save();
-          coverCtx.beginPath();
-          coverCtx.roundRect(0, 0, coverCanvasSize, coverCanvasSize, coverCanvasSize * 0.15);
-          coverCtx.clip();
-          coverCtx.drawImage(img, 0, 0, coverCanvasSize, coverCanvasSize);
-          coverCtx.restore();
-
-          coverCtx.strokeStyle = 'rgba(255,255,255,0.15)';
-          coverCtx.lineWidth = 2;
-          coverCtx.beginPath();
-          coverCtx.roundRect(0, 0, coverCanvasSize, coverCanvasSize, coverCanvasSize * 0.15);
-          coverCtx.stroke();
           resolve();
         };
         img.onerror = () => resolve();
-        img.src = resolvedCoverUrl;
+        if (!coverUrl.startsWith('blob:') && !coverUrl.startsWith('data:')) {
+          img.crossOrigin = 'anonymous';
+        }
+        img.src = coverUrl;
       });
-      
-      try {
-        coverBitmap = await createImageBitmap(coverCanvas);
-      } catch (e) {
-        console.warn('Failed to create cover ImageBitmap:', e);
+
+      if (img.complete && img.naturalWidth > 0) {
+        try {
+          coverBitmap = await createImageBitmap(img);
+        } catch (e) {
+          console.warn('Failed to create cover ImageBitmap:', e);
+        }
       }
     }
   }
@@ -296,7 +267,7 @@ async function exportVideoWebCodecs(
   return new Promise<void>((resolve, reject) => {
     worker.onmessage = (e: MessageEvent) => {
       if (isAborted) return;
-      const { type, percent, seconds, buffer, outputType, message, level } = e.data;
+      const { type, percent, seconds, buffer, outputType, message, level, status } = e.data;
       
       if (type === 'log') {
         if (level === 'info') console.log(`[Worker] ${message}`);
@@ -304,6 +275,8 @@ async function exportVideoWebCodecs(
         else if (level === 'error') console.error(`[Worker] ${message}`);
       } else if (type === 'progress') {
         onProgress(percent, seconds);
+      } else if (type === 'status') {
+        onStatus?.(status);
       } else if (type === 'warning') {
         options.onWarning?.(message);
       } else if (type === 'complete') {
@@ -318,7 +291,7 @@ async function exportVideoWebCodecs(
       }
     };
 
-    worker.onerror = (err) => {
+    worker.onerror = (err: ErrorEvent) => {
       console.error('Web Worker runtime/load error:', err);
       worker.terminate();
       reject(err);
@@ -379,6 +352,7 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
     onComplete,
     onError,
     quality,
+    fps,
   } = options;
 
   const width = resolution === '1080p' ? 1920 : 1280;
@@ -591,7 +565,8 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
       exportAudioElement.volume = 1.0;
       exportAudioElement.currentTime = 0;
 
-      const canvasStream = canvas.captureStream(30);
+      const targetFps = fps || 30;
+      const canvasStream = canvas.captureStream(targetFps);
       const audioStream = destinationNode.stream;
 
       const combinedStream = new MediaStream([
@@ -715,7 +690,7 @@ function exportVideoMediaRecorder(options: ExportOptions): void {
         draw();
       };
 
-      worker.postMessage({ action: 'start', interval: 1000 / 30 });
+      worker.postMessage({ action: 'start', interval: 1000 / targetFps });
 
       await exportAudioElement.play();
 

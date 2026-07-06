@@ -3,10 +3,14 @@ import { useKaraokeStore } from '../../store/useKaraokeStore';
 import { audioRef } from '../../audioRef';
 import { formatTime } from '../../utils/time';
 import { localization } from '../../utils/localization';
-import { Play, Pause, Music, Maximize, Minimize, Globe } from 'lucide-react';
+import { Play, Pause, Music, Maximize, Minimize, Globe, FastForward } from 'lucide-react';
 
-export const KaraokePreview: React.FC = () => {
-  const { lines, theme, language, coverColors } = useKaraokeStore();
+interface KaraokePreviewProps {
+  showQuickShift?: boolean;
+}
+
+export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift = true }) => {
+  const { lines, theme, language, coverColors, shiftAllTimings } = useKaraokeStore();
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -14,32 +18,69 @@ export const KaraokePreview: React.FC = () => {
   
   const listRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null);
 
   const dict = localization[language];
+  const secLabel = language === 'ru' ? 'сек' : 'sec';
+  const PREVIEW_TEXT_LEAD_SECONDS = 0.095;
 
   // Connect to audio events
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleTimeUpdate = () => {
+    const syncTime = () => {
       setCurrentTime(audio.currentTime);
     };
 
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
+    const tick = () => {
+      syncTime();
+      if (!audio.paused && !audio.ended) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    const startTicker = () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    const stopTicker = (syncFinal = true) => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      if (syncFinal) syncTime();
+    };
+
+    const handlePlay = () => {
+      setIsPlaying(true);
+      startTicker();
+    };
+    const handlePause = () => {
+      setIsPlaying(false);
+      stopTicker(false);
+    };
 
     setCurrentTime(audio.currentTime);
     setIsPlaying(!audio.paused);
+    if (!audio.paused) startTicker();
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('timeupdate', syncTime);
+    audio.addEventListener('seeking', syncTime);
+    audio.addEventListener('seeked', syncTime);
     audio.addEventListener('play', handlePlay);
     audio.addEventListener('pause', handlePause);
+    audio.addEventListener('ended', handlePause);
 
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      stopTicker();
+      audio.removeEventListener('timeupdate', syncTime);
+      audio.removeEventListener('seeking', syncTime);
+      audio.removeEventListener('seeked', syncTime);
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('ended', handlePause);
     };
   }, [audioRef.current]);
 
@@ -79,11 +120,14 @@ export const KaraokePreview: React.FC = () => {
     .map((line, originalIndex) => ({ ...line, originalIndex }))
     .filter((line) => line.time !== null)
     .sort((a, b) => (a.time || 0) - (b.time || 0));
+  const timedLinesCount = timedLines.length;
+
+  const lyricTime = currentTime + PREVIEW_TEXT_LEAD_SECONDS;
 
   // Вычисляем индекс активной строки
   let activeIdxInTimed = -1;
   for (let i = 0; i < timedLines.length; i++) {
-    if (timedLines[i].time! <= currentTime) {
+    if (timedLines[i].time! <= lyricTime) {
       activeIdxInTimed = i;
     } else {
       break;
@@ -203,7 +247,7 @@ export const KaraokePreview: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={toggleFullscreen}
-              className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-zinc-550/10 text-zinc-450 hover:text-zinc-200 transition-all text-[10px] font-bold uppercase tracking-wider cursor-pointer"
+              className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-zinc-500/10 text-zinc-500 hover:text-zinc-200 transition-all text-[10px] font-bold uppercase tracking-wider cursor-pointer"
               title={dict.fullscreenLabel}
             >
               {isPlayerFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
@@ -217,7 +261,7 @@ export const KaraokePreview: React.FC = () => {
         </div>
 
         {/* Lyrics Display Arena (Unified Smooth Scrolling Drum) */}
-        {timedLines.length === 0 ? (
+        {timedLinesCount === 0 ? (
           <div className="flex-1 flex flex-col justify-center items-center text-center my-auto w-full z-10 select-none">
             <p className="text-xl sm:text-2xl text-zinc-500 italic">🎤 ...</p>
           </div>
@@ -227,7 +271,7 @@ export const KaraokePreview: React.FC = () => {
             style={{ height: `${(isPlayerFullscreen ? 130 : 72) * 3}px` }}
           >
             <div 
-              className="absolute flex flex-col items-center w-full transition-transform duration-700 ease-[cubic-bezier(0.25,1,0.5,1)]"
+              className="absolute flex flex-col items-center w-full transition-transform duration-[220ms] ease-out"
               style={{ 
                 transform: `translateY(-${activeIdxInTimed * (isPlayerFullscreen ? 130 : 72)}px)`,
                 top: `calc(50% - ${(isPlayerFullscreen ? 130 : 72) / 2}px)`
@@ -246,7 +290,7 @@ export const KaraokePreview: React.FC = () => {
                 } else if (isPrev) {
                   lineClass = isPlayerFullscreen 
                     ? "opacity-25 scale-85 z-10 text-zinc-500" 
-                    : "opacity-25 scale-90 z-10 text-zinc-450";
+                    : "opacity-25 scale-90 z-10 text-zinc-500";
                 } else if (isNext) {
                   lineClass = isPlayerFullscreen 
                     ? "opacity-45 scale-90 z-10 text-zinc-400" 
@@ -263,7 +307,7 @@ export const KaraokePreview: React.FC = () => {
                   <div
                     key={line.id}
                     style={{ height: `${currentLineHeight}px` }}
-                    className={`flex flex-col items-center justify-center text-center px-4 w-full transition-all duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] ${lineClass}`}
+                    className={`flex flex-col items-center justify-center text-center px-4 w-full transition-all duration-[180ms] ease-out ${lineClass}`}
                   >
                     {isActive && hasWordSync ? (
                       /* Пословный прогрессивный закрас в реальном времени */
@@ -273,19 +317,19 @@ export const KaraokePreview: React.FC = () => {
                           const nextW = line.words[wIdx + 1];
                           const wordEnd = nextW?.time || (timedLines[idx + 1]?.time || wordStart + 1);
                           
-                          const isFullyReached = currentTime >= wordEnd;
-                          const isActiveNow = currentTime >= wordStart && currentTime < wordEnd;
+                          const isFullyReached = lyricTime >= wordEnd;
+                          const isActiveNow = lyricTime >= wordStart && lyricTime < wordEnd;
 
                           let wordStyle = isPlayerFullscreen
-                            ? 'text-zinc-650 dark:text-zinc-600'
-                            : 'text-zinc-400/30 dark:text-zinc-650/35';
+                            ? 'text-zinc-700 dark:text-zinc-600'
+                            : 'text-zinc-400/30 dark:text-zinc-700/35';
 
                           if (isFullyReached) {
                             wordStyle = isPlayerFullscreen
                               ? 'text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 font-extrabold drop-shadow-[0_2px_12px_rgba(168,85,247,0.45)]'
-                              : 'text-transparent bg-clip-text bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 font-extrabold drop-shadow-[0_1px_8px_rgba(168,85,247,0.3)]';
+                              : 'text-violet-600 dark:text-transparent dark:bg-clip-text dark:bg-gradient-to-r dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 font-extrabold dark:drop-shadow-[0_1px_8px_rgba(168,85,247,0.3)]';
                           } else if (isActiveNow) {
-                            wordStyle = 'text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-rose-500 dark:from-pink-400 dark:to-rose-400 font-extrabold scale-110';
+                            wordStyle = 'text-violet-600 dark:text-transparent dark:bg-clip-text dark:bg-gradient-to-r dark:from-pink-400 dark:to-rose-400 font-extrabold scale-110';
                           }
 
                           const wordSizeClass = isPlayerFullscreen
@@ -293,7 +337,7 @@ export const KaraokePreview: React.FC = () => {
                             : "text-xl sm:text-3xl";
 
                           return (
-                            <span key={w.id} className={`${wordSizeClass} transition-all duration-200`}>
+                            <span key={w.id} className={`${wordSizeClass} transition-all duration-75`}>
                               <span className={wordStyle}>{w.text}</span>
                             </span>
                           );
@@ -309,7 +353,7 @@ export const KaraokePreview: React.FC = () => {
                         isActive 
                           ? (isPlayerFullscreen
                               ? 'text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 drop-shadow-[0_2px_12px_rgba(168,85,247,0.3)]'
-                              : 'text-transparent bg-clip-text bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 drop-shadow-sm'
+                              : 'text-violet-600 dark:text-transparent dark:bg-clip-text dark:bg-gradient-to-r dark:from-violet-400 dark:via-fuchsia-400 dark:to-pink-400 dark:drop-shadow-sm'
                             )
                           : ''
                       }`}>
@@ -355,6 +399,51 @@ export const KaraokePreview: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {showQuickShift && timedLinesCount > 0 && (
+        <div
+          className={`rounded-2xl p-4 border shadow-sm transition-all ${
+            theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'
+          }`}
+        >
+          <div className="flex flex-col items-center justify-center gap-2 mb-3 text-center">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 flex items-center justify-center gap-1.5">
+              <FastForward size={14} /> {dict.editorShiftAll}
+            </p>
+            <span className="text-xs px-2.5 py-1 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-400 font-medium">
+              {dict.statsTimed} {timedLinesCount} / {lines.length}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            <button
+              onClick={() => shiftAllTimings(-0.5)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/25 transition-colors"
+            >
+              -0.5 {secLabel}
+            </button>
+            <button
+              onClick={() => shiftAllTimings(-0.2)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/25 transition-colors"
+            >
+              -0.2 {secLabel}
+            </button>
+            <div className="h-5 w-[1px] bg-zinc-200 dark:bg-zinc-800 mx-1" />
+            <button
+              onClick={() => shiftAllTimings(0.2)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/25 transition-colors"
+            >
+              +0.2 {secLabel}
+            </button>
+            <button
+              onClick={() => shiftAllTimings(0.5)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/25 transition-colors"
+            >
+              +0.5 {secLabel}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Compact sidebar/list view */}
       <div

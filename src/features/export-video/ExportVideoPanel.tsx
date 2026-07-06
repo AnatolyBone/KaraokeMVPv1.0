@@ -7,19 +7,34 @@ import { clearTextWidthCache } from '../../utils/renderer/textCache';
 import { renderBackground } from '../../utils/renderer/renderBackground';
 import { RenderFrame } from '../../utils/renderer/types';
 import { extractDominantColors } from '../../utils/colors';
-import { FileVideo, Download, AlertCircle, RefreshCw, XCircle, CheckCircle2, Palette, Type, Eye, Film, Activity, ShieldAlert, LayoutGrid } from 'lucide-react';
+import { FileVideo, Download, AlertCircle, RefreshCw, XCircle, CheckCircle2, Palette, Type, Eye, Film, Activity, ShieldAlert, LayoutGrid, SlidersHorizontal } from 'lucide-react';
 
 interface PreviewParticle {
   x: number;
   y: number;
+  baseX?: number;
+  baseY?: number;
   vx: number;
   vy: number;
   radius: number;
   alpha: number;
   color?: string;
+  phase?: number;
+  orbit?: number;
+  speed?: number;
+  stretch?: number;
 }
 
 type QualityPreset = 'low' | 'medium' | 'high' | 'ultra';
+type ExportProfile = 'stable' | 'balanced' | 'premium';
+type ExportProfileState = ExportProfile | 'custom';
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 export const ExportVideoPanel: React.FC = () => {
   const {
@@ -48,16 +63,135 @@ export const ExportVideoPanel: React.FC = () => {
   const [exportEta, setExportEta] = useState<string | null>(null);
   const [exportSpeedFps, setExportSpeedFps] = useState<number>(0);
   const exportStartTimeRef = useRef<number>(0);
+  const lastProgressUiUpdateRef = useRef<number>(0);
   type ExportPhase = 'idle' | 'decoding' | 'initializing' | 'prewarming' | 'encoding' | 'recording';
   const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
   const dict = localization[language];
+  const exportUi = {
+    presetLabel: language === 'ru' ? 'Пресет караоке-дизайна' : 'Karaoke design preset',
+    exportMode: language === 'ru' ? 'Режим экспорта' : 'Export mode',
+    publishTarget: language === 'ru' ? 'Куда публикуем' : 'Publish target',
+    smoothness: language === 'ru' ? 'Плавность' : 'Smoothness',
+    advanced: language === 'ru' ? 'Тонкая настройка' : 'Fine tuning',
+    open: language === 'ru' ? 'открыть' : 'open',
+    hide: language === 'ru' ? 'скрыть' : 'hide',
+    fileSharpness: language === 'ru' ? 'Четкость файла' : 'File sharpness',
+    textTypeface: language === 'ru' ? 'Гарнитура текста' : 'Text typeface',
+    textSize: language === 'ru' ? 'Размер текста' : 'Text size',
+    unsupportedShort: language === 'ru' ? 'Не подд.' : 'N/A',
+    mp4Unsupported: language === 'ru' ? 'Экспорт MP4 не поддерживается в этом браузере' : 'MP4 export is not supported in this browser',
+    ultraWarning: language === 'ru'
+      ? 'Внимание: Рендеринг в 1080p на максимальном режиме создает высокую нагрузку на CPU. На слабых ПК рекомендуется переключить режим на обычный.'
+      : 'Heads up: 1080p export in Maximum mode is CPU-heavy. On weaker devices, Standard mode is recommended.',
+    presets: {
+      apple: language === 'ru' ? 'Apple Music Style (Кураторский)' : 'Apple Music Style (Curated)',
+      spotify: language === 'ru' ? 'Spotify Premium (Сочный зеленый)' : 'Spotify Premium (Rich green)',
+      tiktok: language === 'ru' ? 'TikTok Neon (Неоновый молодежный)' : 'TikTok Neon (High-energy neon)',
+      classic: language === 'ru' ? 'Classic Karaoke (Сине-желтый)' : 'Classic Karaoke (Blue and yellow)',
+      cinema: language === 'ru' ? 'Minimal Cinema (Темный кинотеатр)' : 'Minimal Cinema (Dark cinema)',
+    },
+    quality: {
+      low: language === 'ru' ? 'Легкий' : 'Light',
+      medium: language === 'ru' ? 'Обычный' : 'Standard',
+      high: language === 'ru' ? 'Плавный' : 'Smooth',
+      ultra: language === 'ru' ? 'Максимальный' : 'Maximum',
+    },
+    aspect: {
+      landscape: language === 'ru' ? 'YouTube / горизонтально' : 'YouTube / landscape',
+      vertical: language === 'ru' ? 'TikTok / Reels / Shorts' : 'TikTok / Reels / Shorts',
+      square: language === 'ru' ? 'Instagram / квадрат' : 'Instagram / square',
+    },
+    fps: {
+      low: language === 'ru' ? '24 FPS - для слабых Mac' : '24 FPS - lighter load',
+      standard: language === 'ru' ? '30 FPS - стандарт' : '30 FPS - standard',
+      smooth: language === 'ru' ? '60 FPS - суперплавно' : '60 FPS - extra smooth',
+    },
+    bitrate: {
+      small: language === 'ru' ? 'маленький файл' : 'small file',
+      normal: language === 'ru' ? 'обычное качество' : 'normal quality',
+      hd: language === 'ru' ? 'четкое HD' : 'crisp HD',
+      max: language === 'ru' ? 'максимум 1080p' : 'maximum 1080p',
+    },
+    font: {
+      sans: language === 'ru' ? 'Без засечек' : 'Sans serif',
+      serif: language === 'ru' ? 'С засечками' : 'Serif',
+      mono: language === 'ru' ? 'Моноширинный' : 'Monospace',
+      cursive: language === 'ru' ? 'Рукописный' : 'Script',
+    },
+    profilesTitle: language === 'ru' ? 'Быстрый выбор экспорта' : 'Quick export setup',
+    recommended: language === 'ru' ? 'рекомендуется' : 'recommended',
+    customSettings: language === 'ru' ? 'Свои настройки' : 'Custom settings',
+    currentSetup: language === 'ru' ? 'Текущий экспорт' : 'Current export',
+    effectsOff: language === 'ru' ? 'эффекты выкл.' : 'effects off',
+    effectsOn: language === 'ru' ? 'эффекты вкл.' : 'effects on',
+    slowExportTitle: language === 'ru' ? 'Рендер идет медленно' : 'Render is running slowly',
+    slowExportDesc: language === 'ru'
+      ? 'Можно дождаться результата или отменить экспорт и выбрать профиль «Надежный».'
+      : 'You can wait, or cancel export and choose the Reliable profile.',
+    profiles: {
+      stable: {
+        title: language === 'ru' ? 'Надежный' : 'Reliable',
+        meta: language === 'ru' ? '720p · 24 FPS · легкий рендер' : '720p · 24 FPS · light render',
+        desc: language === 'ru'
+          ? 'Для старых ноутбуков и слабых браузеров. Меньше эффектов, меньше шанс дерганого видео.'
+          : 'For older laptops and weaker browsers. Fewer effects, lower risk of stutter.',
+      },
+      balanced: {
+        title: language === 'ru' ? 'Оптимальный' : 'Balanced',
+        meta: language === 'ru' ? '720p · 30 FPS · красивый фон' : '720p · 30 FPS · polished background',
+        desc: language === 'ru'
+          ? 'Лучший вариант по умолчанию: нормальное качество, хорошая плавность, без лишней нагрузки.'
+          : 'Best default option: good quality, smooth enough, no excessive load.',
+      },
+      premium: {
+        title: language === 'ru' ? 'Максимум' : 'Premium',
+        meta: language === 'ru' ? '1080p · 30 FPS · жидкие сферы' : '1080p · 30 FPS · liquid spheres',
+        desc: language === 'ru'
+          ? 'Для мощного ПК и финального клипа. Красивее, но рендер заметно тяжелее.'
+          : 'For a powerful PC and final clips. Prettier, but much heavier to render.',
+      },
+    },
+  };
 
   // Качество рендеринга (Quality Manager)
+  const exportPhaseCopy: Record<Exclude<ExportPhase, 'idle'>, { title: string; desc: string }> = {
+    decoding: {
+      title: language === 'ru' ? 'Аудио' : 'Audio',
+      desc: language === 'ru' ? 'Готовим дорожку для рендера.' : 'Preparing the track for rendering.',
+    },
+    initializing: {
+      title: language === 'ru' ? 'Кодек' : 'Codec',
+      desc: language === 'ru' ? 'Проверяем формат и encoder.' : 'Checking the format and encoder.',
+    },
+    prewarming: {
+      title: language === 'ru' ? 'Сцена' : 'Scene',
+      desc: language === 'ru' ? 'Прогреваем фон, текст и эффекты.' : 'Warming up background, text, and effects.',
+    },
+    encoding: {
+      title: language === 'ru' ? 'Рендер' : 'Render',
+      desc: language === 'ru' ? 'Собираем видео быстрее реального времени.' : 'Building the video faster than real time.',
+    },
+    recording: {
+      title: language === 'ru' ? 'Запись' : 'Recording',
+      desc: language === 'ru' ? 'Резервный режим: идет запись в реальном времени.' : 'Fallback mode: recording in real time.',
+    },
+  };
+  const exportPhaseOrder: Exclude<ExportPhase, 'idle'>[] = ['decoding', 'initializing', 'prewarming', 'encoding', 'recording'];
+  const visibleExportPhase: Exclude<ExportPhase, 'idle'> = exportPhase === 'idle' ? 'initializing' : exportPhase;
+  const activeExportPhaseIndex = Math.max(0, exportPhaseOrder.indexOf(visibleExportPhase));
+  const secondsUnit = language === 'ru' ? 'с' : 's';
   const [quality, setQuality] = useState<QualityPreset>('high');
-  const [exportFps, setExportFps] = useState<30 | 60>(30);
+  const [exportFps, setExportFps] = useState<24 | 30 | 60>(30);
   const [customBitrate, setCustomBitrate] = useState<number>(3000);
+  const [selectedProfile, setSelectedProfile] = useState<ExportProfileState>('balanced');
+  const isSlowExport =
+    isRecording &&
+    (visibleExportPhase === 'encoding' || visibleExportPhase === 'recording') &&
+    progress > 0.08 &&
+    exportSpeedFps > 0 &&
+    exportSpeedFps < Math.max(8, exportFps * 0.4);
 
   useEffect(() => {
     let defaultBitrate = 3000;
@@ -74,6 +208,41 @@ export const ExportVideoPanel: React.FC = () => {
     }
     setCustomBitrate(defaultBitrate);
   }, [resolution, quality]);
+
+  const applyExportProfile = (profile: ExportProfile) => {
+    setSelectedProfile(profile);
+
+    if (profile === 'stable') {
+      setResolution('720p');
+      setQuality('low');
+      setExportFps(24);
+      setCustomBitrate(1500);
+      setVideoFormat(isMp4Supported ? 'mp4' : 'webm');
+      updateVideoStyle({ fxOverlay: 'none' });
+      return;
+    }
+
+    if (profile === 'balanced') {
+      setResolution('720p');
+      setQuality('high');
+      setExportFps(30);
+      setCustomBitrate(4000);
+      setVideoFormat(isMp4Supported ? 'mp4' : 'webm');
+      updateVideoStyle({ fxOverlay: 'fluid-gradient' });
+      return;
+    }
+
+    setResolution('1080p');
+    setQuality('ultra');
+    setExportFps(30);
+    setCustomBitrate(12000);
+    setVideoFormat(isMp4Supported ? 'mp4' : 'webm');
+    updateVideoStyle({ fxOverlay: 'fluid-gradient' });
+  };
+
+  const markCustomProfile = () => {
+    setSelectedProfile('custom');
+  };
 
   // Профайлер производительности (Frame & Per-Layer Profiler)
   const [fps, setFps] = useState(0);
@@ -96,6 +265,10 @@ export const ExportVideoPanel: React.FC = () => {
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const timedLinesCount = lines.filter((l) => l.time !== null).length;
+  const recommendedProfile: ExportProfile =
+    typeof navigator !== 'undefined' && navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4
+      ? 'stable'
+      : 'balanced';
 
   // Динамический расчет размера обложки в зависимости от соотношения сторон
   const coverSize = videoStyle.aspectRatio === '9:16' 
@@ -145,12 +318,20 @@ export const ExportVideoPanel: React.FC = () => {
   // Автоматически извлекаем цвета обложки при открытии панели экспорта,
   // если coverUrl есть, а coverColors ещё не вычислены (например после перезагрузки страницы)
   useEffect(() => {
-    if (coverUrl && !coverColors) {
+    let cancelled = false;
+    if (coverUrl) {
       extractDominantColors(coverUrl)
-        .then((palette) => setCoverColors(palette))
+        .then((palette) => {
+          if (!cancelled) setCoverColors(palette);
+        })
         .catch(() => {/* silently ignore */});
+    } else {
+      setCoverColors(null);
     }
-  }, [coverUrl, coverColors, setCoverColors]);
+    return () => {
+      cancelled = true;
+    };
+  }, [coverUrl, setCoverColors]);
 
   // Профайлер FPS
   useEffect(() => {
@@ -195,15 +376,27 @@ export const ExportVideoPanel: React.FC = () => {
           color: 'rgba(245, 195, 100, ',
         });
       } else if (videoStyle.fxOverlay === 'fluid-gradient') {
-        previewParticlesRef.current.push({
+        const palette = [
+          coverColors?.primary || '#4f46e5',
+          coverColors?.glow || '#db2777',
+          coverColors?.secondary || '#06b6d4',
+        ];
+        const particle: PreviewParticle = {
           x: Math.random() * w,
           y: Math.random() * h,
           vx: (Math.random() - 0.5) * 0.3,
           vy: (Math.random() - 0.5) * 0.3,
           radius: Math.random() * (w * 0.3) + w * 0.1,
-          alpha: Math.random() * 0.08 + 0.02,
-          color: i % 2 === 0 ? '#4f46e5' : '#db2777',
-        });
+          alpha: quality === 'ultra' ? Math.random() * 0.12 + 0.05 : Math.random() * 0.08 + 0.02,
+          color: palette[i % palette.length],
+          phase: Math.random() * Math.PI * 2,
+          orbit: Math.random() * (w * 0.1) + w * 0.03,
+          speed: Math.random() * 0.28 + 0.08,
+          stretch: Math.random() * 0.7 + 0.8,
+        };
+        particle.baseX = particle.x;
+        particle.baseY = particle.y;
+        previewParticlesRef.current.push(particle);
       }
     }
   };
@@ -212,7 +405,7 @@ export const ExportVideoPanel: React.FC = () => {
     const w = videoStyle.aspectRatio === '9:16' ? 720 : 1280;
     const h = videoStyle.aspectRatio === '9:16' ? 1280 : 720;
     setupPreviewParticles(w, h);
-  }, [videoStyle.fxOverlay, videoStyle.aspectRatio, quality]);
+  }, [videoStyle.fxOverlay, videoStyle.aspectRatio, quality, coverColors]);
 
   // Preload cover image
   const [previewCoverImg, setPreviewCoverImg] = useState<HTMLImageElement | null>(null);
@@ -314,17 +507,43 @@ export const ExportVideoPanel: React.FC = () => {
             ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
             ctx.fill();
           } else if (actualOverlay === 'fluid-gradient') {
-            p.x += p.vx * 0.4;
-            p.y += p.vy * 0.4;
-            if (p.x < 0 || p.x > width) p.vx *= -1;
-            if (p.y < 0 || p.y > height) p.vy *= -1;
+            const time = Date.now() / 1000;
+            if (quality === 'ultra') {
+              const phase = p.phase || 0;
+              const orbit = p.orbit || width * 0.06;
+              const speed = p.speed || 0.14;
+              p.x = (p.baseX || p.x) + Math.cos(time * speed + phase) * orbit + Math.sin(time * speed * 0.63 + phase * 1.7) * orbit * 0.55;
+              p.y = (p.baseY || p.y) + Math.sin(time * speed * 0.82 + phase) * orbit * 0.72 + Math.cos(time * speed * 0.47 + phase * 1.3) * orbit * 0.35;
+            } else {
+              p.x += p.vx * 0.4;
+              p.y += p.vy * 0.4;
+              if (p.x < 0 || p.x > width) p.vx *= -1;
+              if (p.y < 0 || p.y > height) p.vy *= -1;
+            }
 
-            const radGrad = ctx.createRadialGradient(p.x, p.y, 10, p.x, p.y, p.radius);
-            radGrad.addColorStop(0, p.color === '#4f46e5' ? 'rgba(79, 70, 229, 0.08)' : 'rgba(219, 39, 119, 0.08)');
+            const breath = 1 + Math.sin(time * ((p.speed || 0.12) * 1.9) + (p.phase || 0)) * (quality === 'ultra' ? 0.16 : 0.05);
+            const radius = p.radius * breath;
+            const radGrad = ctx.createRadialGradient(p.x, p.y, 10, p.x, p.y, radius);
+            const color = p.color || '#4f46e5';
+            const alpha = quality === 'ultra' ? Math.min(0.18, p.alpha) : Math.min(0.1, p.alpha);
+            radGrad.addColorStop(0, color.startsWith('#') ? hexToRgba(color, alpha) : 'rgba(79, 70, 229, 0.08)');
+            radGrad.addColorStop(0.42, color.startsWith('#') ? hexToRgba(color, alpha * 0.38) : 'rgba(79, 70, 229, 0.03)');
             radGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
             ctx.fillStyle = radGrad;
             ctx.beginPath();
-            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            if (quality === 'ultra') {
+              ctx.ellipse(
+                p.x,
+                p.y,
+                radius * (p.stretch || 1),
+                radius / Math.max(0.7, p.stretch || 1),
+                time * ((p.speed || 0.12) * 0.35) + (p.phase || 0),
+                0,
+                Math.PI * 2
+              );
+            } else {
+              ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+            }
             ctx.fill();
           }
         });
@@ -663,6 +882,7 @@ export const ExportVideoPanel: React.FC = () => {
     setExportPhase('initializing');
     setWarningMessage(null);
     exportStartTimeRef.current = performance.now();
+    lastProgressUiUpdateRef.current = 0;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -692,17 +912,29 @@ export const ExportVideoPanel: React.FC = () => {
         bitrateKbps: customBitrate,
         onStatus: (status) => {
           setExportPhase(status);
+          if (status === 'encoding' || status === 'recording') {
+            exportStartTimeRef.current = performance.now();
+            lastProgressUiUpdateRef.current = 0;
+            setExportEta(null);
+            setExportSpeedFps(0);
+          }
         },
         onWarning: (msg) => {
           setWarningMessage(msg);
         },
         onProgress: (percent, seconds) => {
+          const now = performance.now();
+          if (now - lastProgressUiUpdateRef.current < 120 && percent < 0.995) {
+            return;
+          }
+          lastProgressUiUpdateRef.current = now;
+
           setProgress(percent);
           setSecondsRecorded(seconds);
 
           // Расчёт ETA и скорости
           if (percent > 0.02) {
-            const elapsed = (performance.now() - exportStartTimeRef.current) / 1000;
+            const elapsed = (now - exportStartTimeRef.current) / 1000;
             const estimatedTotal = elapsed / percent;
             const remaining = Math.max(0, estimatedTotal - elapsed);
             const fps = seconds / elapsed * exportFps;
@@ -710,9 +942,13 @@ export const ExportVideoPanel: React.FC = () => {
             if (remaining > 5) {
               const mins = Math.floor(remaining / 60);
               const secs = Math.round(remaining % 60);
-              setExportEta(mins > 0 ? `~${mins}м ${secs}с` : `~${secs}с`);
+              setExportEta(
+                mins > 0
+                  ? `~${mins}${language === 'ru' ? 'м' : 'm'} ${secs}${secondsUnit}`
+                  : `~${secs}${secondsUnit}`
+              );
             } else {
-              setExportEta('совсем скоро...');
+              setExportEta(language === 'ru' ? 'почти готово' : 'almost done');
             }
           }
         },
@@ -800,7 +1036,7 @@ export const ExportVideoPanel: React.FC = () => {
               <Eye size={14} className="text-violet-500" /> {theme === 'dark' ? 'Интерактивный предпросмотр' : 'Interactive Multi-format Preview'}
             </h4>
             <div 
-              className={`relative rounded-xl overflow-hidden bg-black border border-zinc-250/10 flex items-center justify-center shadow-inner transition-all duration-500 mx-auto ${getAspectRatioClass()}`}
+              className={`relative rounded-xl overflow-hidden bg-black border border-zinc-200/10 flex items-center justify-center shadow-inner transition-all duration-500 mx-auto ${getAspectRatioClass()}`}
             >
               <canvas
                 ref={previewCanvasRef}
@@ -811,7 +1047,7 @@ export const ExportVideoPanel: React.FC = () => {
             </div>
 
             {/* РАСШИРЕННЫЙ ВСТРОЕННЫЙ ПОСЛОЙНЫЙ ПРОФАЙЛЕР (PER-LAYER PROFILER) */}
-            <div className="w-full max-w-md mt-2 p-4 rounded-xl border border-zinc-200/5 bg-zinc-550/5 flex flex-col gap-2 text-[10px] font-mono">
+            <div className="w-full max-w-md mt-2 p-4 rounded-xl border border-zinc-200/5 bg-zinc-500/5 flex flex-col gap-2 text-[10px] font-mono">
               <div className="flex justify-between items-center border-b border-zinc-200/5 pb-1.5">
                 <span className="text-zinc-400 flex items-center gap-1 font-bold">
                   <Activity size={12} className="text-violet-500 animate-pulse" /> Render Performance Monitor:
@@ -844,6 +1080,82 @@ export const ExportVideoPanel: React.FC = () => {
             </div>
           </div>
 
+          {/* Quick export profiles */}
+          <div className="space-y-3 border-b border-zinc-200/10 pb-5">
+            <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 flex items-center gap-1.5">
+              <SlidersHorizontal size={14} className="text-violet-500" /> {exportUi.profilesTitle}
+            </h4>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {(['stable', 'balanced', 'premium'] as ExportProfile[]).map((profile) => {
+                const profileInfo = exportUi.profiles[profile];
+                const isActive = selectedProfile === profile;
+                const isRecommended = recommendedProfile === profile;
+
+                return (
+                  <button
+                    key={profile}
+                    type="button"
+                    onClick={() => applyExportProfile(profile)}
+                    className={`text-left rounded-2xl border p-4 transition-all active:scale-[0.98] ${
+                      isActive
+                        ? theme === 'dark'
+                          ? 'border-violet-500/60 bg-violet-500/12 text-zinc-100 shadow-md shadow-violet-500/10'
+                          : 'border-violet-300/80 bg-violet-50/85 text-zinc-900 shadow-md shadow-violet-200/45'
+                        : theme === 'dark'
+                          ? 'border-white/10 bg-zinc-900/55 hover:border-violet-500/35 hover:bg-zinc-900/80 text-zinc-200'
+                          : 'border-white/70 bg-white/70 hover:border-violet-300/70 hover:bg-white/90 text-zinc-800 shadow-sm shadow-violet-200/25'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={`text-sm font-extrabold ${isActive ? 'text-violet-600 dark:text-violet-300' : 'text-inherit'}`}>
+                          {profileInfo.title}
+                        </p>
+                        <p className={`mt-1 text-[10px] font-bold uppercase tracking-wider ${
+                          isActive ? 'text-violet-500/80 dark:text-violet-200/75' : 'text-zinc-500 dark:text-zinc-400'
+                        }`}>
+                          {profileInfo.meta}
+                        </p>
+                      </div>
+
+                      {isRecommended && (
+                        <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[9px] font-extrabold uppercase tracking-wider text-emerald-500 dark:text-emerald-400">
+                          {exportUi.recommended}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className={`mt-3 text-[11px] leading-relaxed ${
+                      isActive ? 'text-zinc-600 dark:text-zinc-200/80' : 'text-zinc-500 dark:text-zinc-400'
+                    }`}>
+                      {profileInfo.desc}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-semibold ${
+              theme === 'dark'
+                ? 'border-white/10 bg-zinc-900/45 text-zinc-300'
+                : 'border-white/70 bg-white/65 text-zinc-600 shadow-sm shadow-violet-200/25'
+            }`}>
+              <span className="font-extrabold text-violet-500 dark:text-violet-300">
+                {selectedProfile === 'custom' ? exportUi.customSettings : exportUi.currentSetup}
+              </span>
+              <span>{resolution}</span>
+              <span className="text-zinc-400">·</span>
+              <span>{exportFps} FPS</span>
+              <span className="text-zinc-400">·</span>
+              <span>{customBitrate / 1000} Mbps</span>
+              <span className="text-zinc-400">·</span>
+              <span>{videoFormat.toUpperCase()}</span>
+              <span className="text-zinc-400">·</span>
+              <span>{videoStyle.fxOverlay === 'none' ? exportUi.effectsOff : exportUi.effectsOn}</span>
+            </div>
+          </div>
+
           {/* Visual Customizer Options */}
           <div className="space-y-4 border-b border-zinc-200/10 pb-5">
             <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 flex items-center gap-1.5 mb-3">
@@ -865,107 +1177,146 @@ export const ExportVideoPanel: React.FC = () => {
               {/* PRESET-FIRST DESIGN SELECTOR */}
               <div className="flex flex-col gap-1.5 sm:col-span-2">
                 <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
-                  <LayoutGrid size={14} className="text-violet-500" /> Пресет караоке-дизайна
+                  <LayoutGrid size={14} className="text-violet-500" /> {exportUi.presetLabel}
                 </label>
                 <select
                   value={videoStyle.preset}
-                  onChange={(e) => updateVideoStyle({ preset: e.target.value as any })}
+                  onChange={(e) => {
+                    markCustomProfile();
+                    updateVideoStyle({ preset: e.target.value as any });
+                  }}
                   className={`p-2.5 rounded-xl text-xs border font-bold focus:outline-none transition-all bg-zinc-900 border-zinc-800 text-violet-400`}
                 >
-                  <option value="apple-music">🎵 Apple Music Style (Кураторский)</option>
-                  <option value="spotify">🟢 Spotify Premium (Сочный зеленый)</option>
-                  <option value="tiktok-neon">⚡ TikTok Neon (Неоновый молодежный)</option>
-                  <option value="classic-karaoke">🎤 Classic Karaoke (Сине-желтый)</option>
-                  <option value="minimal-cinema">🎬 Minimal Cinema (Темный кинотеатр)</option>
+                  <option value="apple-music">🎵 {exportUi.presets.apple}</option>
+                  <option value="spotify">🟢 {exportUi.presets.spotify}</option>
+                  <option value="tiktok-neon">⚡ {exportUi.presets.tiktok}</option>
+                  <option value="classic-karaoke">🎤 {exportUi.presets.classic}</option>
+                  <option value="minimal-cinema">🎬 {exportUi.presets.cinema}</option>
                 </select>
               </div>
 
               {/* RENDER QUALITY MANAGER */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-zinc-400">Качество Рендера</label>
+                <label className="text-xs font-bold text-zinc-400">{exportUi.exportMode}</label>
                 <select
                   value={quality}
-                  onChange={(e) => setQuality(e.target.value as QualityPreset)}
+                  onChange={(e) => {
+                    markCustomProfile();
+                    setQuality(e.target.value as QualityPreset);
+                  }}
                   className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-900 border-zinc-800 text-zinc-300`}
                 >
-                  <option value="low">Низкое (Слабый ПК / Без эффектов)</option>
-                  <option value="medium">Среднее (Без частиц / Мягкая тень)</option>
-                  <option value="high">Высокое (Снег / Размытие обложки)</option>
-                  <option value="ultra">Ультра (Жидкие сферы / Максимум FPS)</option>
+                  <option value="low">{exportUi.quality.low}</option>
+                  <option value="medium">{exportUi.quality.medium}</option>
+                  <option value="high">{exportUi.quality.high}</option>
+                  <option value="ultra">{exportUi.quality.ultra}</option>
                 </select>
               </div>
 
               {/* Aspect Ratio Selection */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-zinc-400">Формат кадра</label>
+                <label className="text-xs font-bold text-zinc-400">{exportUi.publishTarget}</label>
                 <select
                   value={videoStyle.aspectRatio}
-                  onChange={(e) => updateVideoStyle({ aspectRatio: e.target.value as any })}
+                  onChange={(e) => {
+                    markCustomProfile();
+                    updateVideoStyle({ aspectRatio: e.target.value as any });
+                  }}
                   className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-900 border-zinc-800 text-zinc-300`}
                 >
-                  <option value="16:9">Desktop (16:9)</option>
-                  <option value="9:16">Mobile / TikTok (9:16)</option>
-                  <option value="1:1">Square / Instagram (1:1)</option>
+                  <option value="16:9">{exportUi.aspect.landscape}</option>
+                  <option value="9:16">{exportUi.aspect.vertical}</option>
+                  <option value="1:1">{exportUi.aspect.square}</option>
                 </select>
               </div>
 
               {/* FPS Selection */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-zinc-400">Частота кадров (FPS)</label>
+                <label className="text-xs font-bold text-zinc-400">{exportUi.smoothness}</label>
                 <select
                   value={exportFps}
-                  onChange={(e) => setExportFps(Number(e.target.value) as 30 | 60)}
+                  onChange={(e) => {
+                    markCustomProfile();
+                    setExportFps(Number(e.target.value) as 24 | 30 | 60);
+                  }}
                   className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-900 border-zinc-800 text-zinc-300`}
                 >
-                  <option value={30}>30 FPS (Быстрый экспорт)</option>
-                  <option value={60}>60 FPS (Плавные анимации)</option>
+                  <option value={24}>{exportUi.fps.low}</option>
+                  <option value={30}>{exportUi.fps.standard}</option>
+                  <option value={60}>{exportUi.fps.smooth}</option>
                 </select>
               </div>
 
-              {/* Bitrate Selection */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-zinc-400">Битрейт видео (качество)</label>
-                <select
-                  value={customBitrate}
-                  onChange={(e) => setCustomBitrate(Number(e.target.value))}
-                  className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-900 border-zinc-800 text-zinc-300`}
-                >
-                  <option value={1500}>1.5 Mbps (Экономный)</option>
-                  <option value={3000}>3 Mbps (Средний SD)</option>
-                  <option value={6000}>6 Mbps (Высокий HD)</option>
-                  <option value={12000}>12 Mbps (Ультра 1080p)</option>
-                </select>
-              </div>
+              <details className="group sm:col-span-2 rounded-xl border border-zinc-800 bg-zinc-900/70">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-xs font-bold text-zinc-300">
+                  <span className="flex items-center gap-2">
+                    <SlidersHorizontal size={14} className="text-violet-400" />
+                    {exportUi.advanced}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-500 group-open:hidden">
+                    {exportUi.open}
+                  </span>
+                  <span className="hidden text-[10px] uppercase tracking-wider text-zinc-500 group-open:inline">
+                    {exportUi.hide}
+                  </span>
+                </summary>
 
-              {/* Subtitle Font selection */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-zinc-400 flex items-center gap-1">
-                  <Type size={12} /> Шрифт текста
-                </label>
-                <select
-                  value={videoStyle.fontFamily}
-                  onChange={(e) => updateVideoStyle({ fontFamily: e.target.value })}
-                  className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-900 border-zinc-800 text-zinc-300`}
-                >
-                  <option value="sans-serif">Без засечек (Sans-Serif)</option>
-                  <option value="serif">С засечками (Serif)</option>
-                  <option value="monospace">Моноширинный (Monospace)</option>
-                  <option value="cursive">Курсивный (Cursive)</option>
-                </select>
-              </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-zinc-800 p-3">
+                  {/* Bitrate Selection */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400">{exportUi.fileSharpness}</label>
+                    <select
+                      value={customBitrate}
+                      onChange={(e) => {
+                        markCustomProfile();
+                        setCustomBitrate(Number(e.target.value));
+                      }}
+                      className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-950 border-zinc-800 text-zinc-300`}
+                    >
+                      <option value={1500}>{exportUi.bitrate.small}</option>
+                      <option value={3000}>{exportUi.bitrate.normal}</option>
+                      <option value={6000}>{exportUi.bitrate.hd}</option>
+                      <option value={12000}>{exportUi.bitrate.max}</option>
+                    </select>
+                  </div>
 
-              {/* Subtitle Size */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-zinc-400">Размер шрифта (px)</label>
-                <input
-                  type="number"
-                  min={20}
-                  max={100}
-                  value={videoStyle.fontSize}
-                  onChange={(e) => updateVideoStyle({ fontSize: Number(e.target.value) })}
-                  className="p-2.5 rounded-xl text-xs border focus:outline-none text-center bg-zinc-900 border-zinc-805 text-zinc-100"
-                />
-              </div>
+                  {/* Subtitle Font selection */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1">
+                      <Type size={12} /> {exportUi.textTypeface}
+                    </label>
+                    <select
+                      value={videoStyle.fontFamily}
+                      onChange={(e) => {
+                        markCustomProfile();
+                        updateVideoStyle({ fontFamily: e.target.value });
+                      }}
+                      className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-950 border-zinc-800 text-zinc-300`}
+                    >
+                      <option value="sans-serif">{exportUi.font.sans}</option>
+                      <option value="serif">{exportUi.font.serif}</option>
+                      <option value="monospace">{exportUi.font.mono}</option>
+                      <option value="cursive">{exportUi.font.cursive}</option>
+                    </select>
+                  </div>
+
+                  {/* Subtitle Size */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400">{exportUi.textSize}</label>
+                    <input
+                      type="number"
+                      min={20}
+                      max={100}
+                      value={videoStyle.fontSize}
+                      onChange={(e) => {
+                        markCustomProfile();
+                        updateVideoStyle({ fontSize: Number(e.target.value) });
+                      }}
+                      className="p-2.5 rounded-xl text-xs border focus:outline-none text-center bg-zinc-950 border-zinc-800 text-zinc-100"
+                    />
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -978,21 +1329,27 @@ export const ExportVideoPanel: React.FC = () => {
               <button
                 type="button"
                 disabled={!isMp4Supported}
-                onClick={() => setVideoFormat('mp4')}
+                onClick={() => {
+                  markCustomProfile();
+                  setVideoFormat('mp4');
+                }}
                 className={`flex-1 flex flex-col items-center justify-center p-3 rounded-xl border transition-all ${
                   videoFormat === 'mp4'
                     ? 'border-violet-500 bg-violet-500/10 text-violet-400 font-semibold scale-[1.01]'
                     : 'border-zinc-800 bg-zinc-900 text-zinc-400'
                 } ${!isMp4Supported ? 'opacity-40 cursor-not-allowed' : ''}`}
-                title={!isMp4Supported ? 'Экспорт MP4 не поддерживается в этом браузере' : ''}
+                title={!isMp4Supported ? exportUi.mp4Unsupported : ''}
               >
                 <span className="text-xs font-bold">MP4 (H.264)</span>
-                <span className="text-[10px] opacity-50 mt-0.5">{isMp4Supported ? 'AAC/Opus' : 'Не подд.'}</span>
+                <span className="text-[10px] opacity-50 mt-0.5">{isMp4Supported ? 'AAC/Opus' : exportUi.unsupportedShort}</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setVideoFormat('webm')}
+                onClick={() => {
+                  markCustomProfile();
+                  setVideoFormat('webm');
+                }}
                 className={`flex-1 flex flex-col items-center justify-center p-3 rounded-xl border transition-all ${
                   videoFormat === 'webm'
                     ? 'border-violet-500 bg-violet-500/10 text-violet-400 font-semibold scale-[1.01]'
@@ -1013,7 +1370,10 @@ export const ExportVideoPanel: React.FC = () => {
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setResolution('720p')}
+                onClick={() => {
+                  markCustomProfile();
+                  setResolution('720p');
+                }}
                 className={`flex-1 flex flex-col items-center justify-center p-3 rounded-xl border transition-all ${
                   resolution === '720p'
                     ? 'border-violet-500 bg-violet-500/10 text-violet-400 font-semibold scale-[1.01]'
@@ -1026,7 +1386,10 @@ export const ExportVideoPanel: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setResolution('1080p')}
+                onClick={() => {
+                  markCustomProfile();
+                  setResolution('1080p');
+                }}
                 className={`flex-1 flex flex-col items-center justify-center p-3 rounded-xl border transition-all ${
                   resolution === '1080p'
                     ? 'border-violet-500 bg-violet-500/10 text-violet-400 font-semibold scale-[1.01]'
@@ -1042,7 +1405,7 @@ export const ExportVideoPanel: React.FC = () => {
           {quality === 'ultra' && resolution === '1080p' && (
             <div className="p-3 rounded-xl bg-yellow-500/5 border border-yellow-500/15 text-[10px] text-yellow-500/90 flex gap-1.5 items-start">
               <ShieldAlert size={14} className="shrink-0 mt-0.5" />
-              <span>Внимание: Рендеринг в 1080p на качестве Ultra создает высокую нагрузку на CPU. На слабых ПК рекомендуется переключить качество в режим Medium.</span>
+              <span>{exportUi.ultraWarning}</span>
             </div>
           )}
 
@@ -1076,19 +1439,34 @@ export const ExportVideoPanel: React.FC = () => {
             <RefreshCw className="animate-spin text-violet-500" size={20} />
             <div>
               <h4 className="font-semibold text-sm">
-                {exportPhase === 'decoding' && (language === 'ru' ? 'Декодирование аудио...' : 'Decoding audio...')}
-                {exportPhase === 'initializing' && (language === 'ru' ? 'Инициализация кодеков...' : 'Initializing codecs...')}
-                {exportPhase === 'prewarming' && (language === 'ru' ? 'Подготовка рендерера...' : 'Pre-warming renderer...')}
-                {exportPhase === 'encoding' && (language === 'ru' ? 'Кодирование видео (офлайн)' : 'Encoding video (offline)')}
-                {exportPhase === 'recording' && (language === 'ru' ? 'Запись в реальном времени' : 'Real-time recording')}
-                {exportPhase === 'idle' && dict.videoRecording}
+                {language === 'ru' ? 'Экспорт видео' : 'Video export'}: {exportPhaseCopy[visibleExportPhase].title}
               </h4>
               <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                {exportPhase === 'recording'
-                  ? (language === 'ru' ? 'Используется режим реального времени. Не закрывайте вкладку.' : 'Real-time mode active. Keep this tab open.')
-                  : (language === 'ru' ? 'Быстрый офлайн-экспорт. Не закрывайте вкладку.' : 'Fast offline export. Keep this tab open.')}
+                {exportPhaseCopy[visibleExportPhase].desc} {language === 'ru' ? 'Не закрывайте вкладку.' : 'Keep this tab open.'}
               </p>
             </div>
+          </div>
+
+          <div className="grid grid-cols-5 gap-1.5">
+            {exportPhaseOrder.map((phase, index) => {
+              const isDone = index < activeExportPhaseIndex;
+              const isCurrent = phase === visibleExportPhase;
+              return (
+                <div
+                  key={phase}
+                  className={`rounded-lg border px-2 py-2 text-center transition-colors ${
+                    isCurrent
+                      ? 'border-violet-500 bg-violet-500/10 text-violet-600 dark:text-violet-300'
+                      : isDone
+                        ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                        : 'border-zinc-200 bg-zinc-50 text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-600'
+                  }`}
+                >
+                  <div className="text-[10px] font-mono font-bold leading-none">{index + 1}</div>
+                  <div className="mt-1 truncate text-[10px] font-semibold">{exportPhaseCopy[phase].title}</div>
+                </div>
+              );
+            })}
           </div>
 
           {/* Предупреждение / уведомление об откате на резервный режим */}
@@ -1099,13 +1477,29 @@ export const ExportVideoPanel: React.FC = () => {
             </div>
           )}
 
+          {isSlowExport && (
+            <div className="rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-zinc-600 dark:text-zinc-300">
+              <div className="flex items-start gap-2">
+                <AlertCircle size={15} className="mt-0.5 shrink-0 text-violet-500" />
+                <div>
+                  <div className="font-semibold text-zinc-800 dark:text-zinc-100">{exportUi.slowExportTitle}</div>
+                  <div className="mt-0.5 leading-relaxed">{exportUi.slowExportDesc}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Progress Bar */}
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs font-mono text-zinc-400 dark:text-zinc-500 font-bold">
-              <span>{Math.floor(secondsRecorded)}с / {Math.round(progress * 100)}%</span>
+              <span>{Math.floor(secondsRecorded)}{secondsUnit} / {Math.round(progress * 100)}%</span>
               <span className="flex items-center gap-2">
                 {exportSpeedFps > 0 && <span className="text-violet-400">{exportSpeedFps} fps</span>}
-                {exportEta && <span className="text-zinc-300">{exportEta}</span>}
+                {exportEta && (
+                  <span className="text-zinc-500 dark:text-zinc-300">
+                    {language === 'ru' ? 'осталось' : 'left'} {exportEta}
+                  </span>
+                )}
               </span>
             </div>
             <div className="h-3 w-full bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
@@ -1134,7 +1528,7 @@ export const ExportVideoPanel: React.FC = () => {
           {/* Video Element Preview (С адаптивным ресайзом и пропорциями кадра) */}
           <div className="space-y-2 flex flex-col items-center w-full">
             <div 
-              className={`relative rounded-xl overflow-hidden bg-black border border-zinc-250/10 flex items-center justify-center shadow-inner transition-all duration-500 mx-auto ${getAspectRatioClass()}`}
+              className={`relative rounded-xl overflow-hidden bg-black border border-zinc-200/10 flex items-center justify-center shadow-inner transition-all duration-500 mx-auto ${getAspectRatioClass()}`}
             >
               <video
                 src={videoObjectUrl || undefined}

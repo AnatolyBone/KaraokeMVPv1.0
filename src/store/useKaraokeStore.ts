@@ -422,7 +422,7 @@ export const useKaraokeStore = create<KaraokeState>()(
               Object.assign(updated, {
                 bgType: 'cover-blur',
                 animationStyle: 'apple-music',
-                fxOverlay: 'none',
+                fxOverlay: 'fluid-gradient',
                 glowSize: 0,
                 visualizerType: 'none',
                 activeWordColor: '#1db954',
@@ -447,7 +447,7 @@ export const useKaraokeStore = create<KaraokeState>()(
                 bgType: 'gradient',
                 gradientPreset: 'ocean',
                 animationStyle: 'classic-karaoke',
-                fxOverlay: 'none',
+                fxOverlay: 'snow',
                 glowSize: 4,
                 visualizerType: 'none',
                 activeWordColor: '#ffff00',
@@ -458,7 +458,7 @@ export const useKaraokeStore = create<KaraokeState>()(
               Object.assign(updated, {
                 bgType: 'split-dark',
                 animationStyle: 'split-screen',
-                fxOverlay: 'none',
+                fxOverlay: 'lens-dust',
                 glowSize: 0,
                 visualizerType: 'none',
                 activeWordColor: '#ffffff',
@@ -473,10 +473,13 @@ export const useKaraokeStore = create<KaraokeState>()(
       
       setAudio: (audioUrl, audioFileName) => {
         const titleFromAudio = audioFileName ? audioFileName.replace(/\.[^/.]+$/, '') : null;
+        const previousAudioFileName = get().audioFileName;
+        const isDifferentTrack = Boolean(audioFileName && previousAudioFileName && audioFileName !== previousAudioFileName);
         set({
           audioUrl,
           audioFileName,
-          currentProjectTitle: get().currentProjectTitle || titleFromAudio,
+          ...(isDifferentTrack ? { currentProjectId: null } : {}),
+          currentProjectTitle: isDifferentTrack ? titleFromAudio : get().currentProjectTitle || titleFromAudio,
           ...(audioUrl === null ? { trackMetadata: null } : {})
         });
       },
@@ -1389,4 +1392,3 @@ export function getDefaultProjectTitle(
 
   return language === 'ru' ? 'Караоке' : 'Karaoke';
 }
-

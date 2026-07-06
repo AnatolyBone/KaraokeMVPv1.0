@@ -155,7 +155,7 @@ export const TimelineEditor: React.FC = () => {
             {isPlaying ? <Pause size={14} /> : <Play size={14} />}
           </button>
 
-          <span className="text-xs font-mono font-bold text-zinc-450">
+          <span className="text-xs font-mono font-bold text-zinc-500">
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
         </div>
@@ -168,7 +168,7 @@ export const TimelineEditor: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          <p className="text-[10px] text-zinc-450 dark:text-zinc-500 flex items-center gap-1">
+          <p className="text-[10px] text-zinc-500 dark:text-zinc-500 flex items-center gap-1">
             <HelpCircle size={12} /> 
             <strong>{language === 'ru' ? 'Совет' : 'Tip'}:</strong> {dict.timelineTip}
             {snapToBeat && (
@@ -182,7 +182,7 @@ export const TimelineEditor: React.FC = () => {
           <div 
             ref={timelineRef}
             onClick={handleScrub}
-            className="h-14 w-full bg-zinc-100 dark:bg-zinc-900 rounded-xl relative cursor-ew-resize overflow-hidden border border-zinc-250/10"
+            className="h-14 w-full bg-zinc-100 dark:bg-zinc-900 rounded-xl relative cursor-ew-resize overflow-hidden border border-zinc-200/10"
           >
             {/* Playhead Line */}
             <div 
@@ -205,7 +205,7 @@ export const TimelineEditor: React.FC = () => {
                       ? 'bg-violet-600 border-violet-500 text-white scale-105 shadow-violet-500/30'
                       : theme === 'dark'
                       ? 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-200'
-                      : 'bg-zinc-200 hover:bg-zinc-300 border-zinc-350 text-zinc-700'
+                      : 'bg-zinc-200 hover:bg-zinc-300 border-zinc-300 text-zinc-700'
                   }`}
                   style={{ 
                     left: `${percentLeft}%`, 

@@ -1,6 +1,7 @@
 import { LyricLine, VideoStyleOptions } from '../../types';
 import { clearBackgroundCache } from './renderBackground';
 import { createCanvas } from './canvasHelper';
+import { Canvas2DContext } from './types';
 
 interface PrerenderedText {
   inactiveCanvas: HTMLCanvasElement | OffscreenCanvas;
@@ -15,7 +16,7 @@ interface PrerenderedText {
 const widthCache = new Map<string, number>();
 const prerenderCache = new Map<string, PrerenderedText>();
 
-export function getCachedTextWidth(ctx: CanvasRenderingContext2D, text: string, font: string): number {
+export function getCachedTextWidth(ctx: Canvas2DContext, text: string, font: string): number {
   const key = `${font}_${text}`;
   if (widthCache.has(key)) {
     return widthCache.get(key)!;
@@ -33,7 +34,7 @@ export function getCachedTextWidth(ctx: CanvasRenderingContext2D, text: string, 
  * Возвращает масштабированный font-string и effectiveFontSize.
  */
 function fitFontToWidth(
-  ctx: CanvasRenderingContext2D,
+  ctx: Canvas2DContext,
   text: string,
   font: string,
   fontSize: number,
@@ -61,7 +62,7 @@ function fitFontToWidth(
  * @param maxWidth Максимальная ширина текста в пикселях (ширина канваса). Текст автоматически масштабируется.
  */
 export function getPrerenderedText(
-  ctx: CanvasRenderingContext2D,
+  ctx: Canvas2DContext,
   line: LyricLine,
   font: string,
   styleOptions: VideoStyleOptions,

@@ -370,7 +370,7 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({ active, onClos
         style={tooltipStyle}
         className={`w-[calc(100%-2rem)] max-w-md p-6 rounded-2xl border shadow-2xl transition-all duration-300 backdrop-blur-md z-50 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200 ${
           theme === 'dark'
-            ? 'bg-zinc-950/90 border-zinc-800 text-zinc-150 shadow-zinc-950/80'
+            ? 'bg-zinc-950/90 border-zinc-800 text-zinc-100 shadow-zinc-950/80'
             : 'bg-white/95 border-zinc-200 text-zinc-800 shadow-zinc-300/60'
         }`}
       >
@@ -384,7 +384,7 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({ active, onClos
           </span>
           <button
             onClick={handleClose}
-            className="p-1 rounded-lg text-zinc-450 hover:text-red-500 hover:bg-zinc-500/10 transition-colors cursor-pointer"
+            className="p-1 rounded-lg text-zinc-500 hover:text-red-500 hover:bg-zinc-500/10 transition-colors cursor-pointer"
             title={dict.tourSkip}
           >
             <X size={16} />
@@ -406,7 +406,7 @@ export const InteractiveTour: React.FC<InteractiveTourProps> = ({ active, onClos
           <button
             onClick={handleClose}
             className={`text-xs font-semibold hover:underline cursor-pointer ${
-              theme === 'dark' ? 'text-zinc-500 hover:text-zinc-350' : 'text-zinc-450 hover:text-zinc-650'
+              theme === 'dark' ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-500 hover:text-zinc-700'
             }`}
           >
             {dict.tourSkip}

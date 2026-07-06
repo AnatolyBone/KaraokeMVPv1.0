@@ -1,5 +1,8 @@
 import { LyricLine, VideoStyleOptions } from '../../types';
 
+export type Canvas2DContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+export type Canvas2D = HTMLCanvasElement | OffscreenCanvas;
+
 export interface RenderFrame {
   time: number;
   width: number;
@@ -8,8 +11,8 @@ export interface RenderFrame {
   fft: Uint8Array;
   styleOptions: VideoStyleOptions;
   coverColors: { primary: string; secondary: string; glow: string } | null;
-  coverCanvas: HTMLCanvasElement | null;
-  coverImg?: HTMLImageElement | null;
+  coverCanvas: Canvas2D | null;
+  coverImg?: CanvasImageSource | null;
   isCoverReady: boolean;
   resolution: '720p' | '1080p';
   easedProgress?: number; // Прогресс перехода с кубическим сглаживанием
@@ -19,12 +22,12 @@ export interface RenderFrame {
 }
 
 export interface RenderLayer {
-  render(ctx: CanvasRenderingContext2D, frame: RenderFrame): void;
+  render(ctx: Canvas2DContext, frame: RenderFrame): void;
 }
 
 export interface AnimationStrategy {
   render(
-    ctx: CanvasRenderingContext2D,
+    ctx: Canvas2DContext,
     frame: RenderFrame,
     fromLine: LyricLine | null,
     toLine: LyricLine | null,

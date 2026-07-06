@@ -4,7 +4,7 @@ import { supabase } from '../services/supabaseClient';
 import { localization } from '../utils/localization';
 import { 
   X, Users, Music, Layers, Cpu, ShieldAlert, Trash2, Shield, User, 
-  Search, RefreshCw, AlertTriangle, Settings, FileText 
+  Search, RefreshCw, AlertTriangle, Settings, FileText, MessageSquare, Clipboard
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -13,7 +13,7 @@ interface AdminPanelModalProps {
   onClose: () => void;
 }
 
-type TabType = 'users' | 'songs' | 'published' | 'stems' | 'settings' | 'logs';
+type TabType = 'users' | 'songs' | 'published' | 'stems' | 'feedback' | 'settings' | 'logs';
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClose }) => {
   const { theme, language } = useKaraokeStore();
@@ -30,8 +30,11 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
   const [stems, setStems] = useState<any[]>([]);
   const [settingsList, setSettingsList] = useState<any[]>([]);
   const [debugLogs, setDebugLogs] = useState<any[]>([]);
+  const [feedbackItems, setFeedbackItems] = useState<any[]>([]);
+  const [feedbackFilter, setFeedbackFilter] = useState<string>('all');
   
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [expandedFeedbackId, setExpandedFeedbackId] = useState<string | null>(null);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
 
@@ -89,6 +92,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
           .order('key', { ascending: true });
         if (error) throw error;
         setSettingsList(data || []);
+      } else if (activeTab === 'feedback') {
+        const { data, error } = await supabase
+          .from('feedback')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (error) throw error;
+        setFeedbackItems(data || []);
       } else if (activeTab === 'logs') {
         const { data, error } = await supabase
           .from('telegram_bot_debug_logs')
@@ -187,6 +198,44 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
     setSettingsList(prev => prev.map(s => s.key === key ? { ...s, value } : s));
   };
 
+  const handleFeedbackStatusChange = async (id: string, status: string) => {
+    try {
+      const { error } = await supabase
+        .from('feedback')
+        .update({ status })
+        .eq('id', id);
+      if (error) throw error;
+      setFeedbackItems(prev => prev.map(item => item.id === id ? { ...item, status } : item));
+    } catch (err: any) {
+      alert(`Error updating feedback: ${err.message}`);
+    }
+  };
+
+  const handleFeedbackNoteChange = (id: string, adminNote: string) => {
+    setFeedbackItems(prev => prev.map(item => item.id === id ? { ...item, admin_note: adminNote } : item));
+  };
+
+  const handleFeedbackNoteSave = async (id: string, adminNote: string) => {
+    try {
+      const { error } = await supabase
+        .from('feedback')
+        .update({ admin_note: adminNote.trim() || null })
+        .eq('id', id);
+      if (error) throw error;
+    } catch (err: any) {
+      alert(`Error saving feedback note: ${err.message}`);
+    }
+  };
+
+  const handleCopyTechData = async (item: any) => {
+    const payload = JSON.stringify(item.technical_data || {}, null, 2);
+    try {
+      await navigator.clipboard.writeText(payload);
+    } catch (err) {
+      console.warn('Copy tech data failed:', err);
+    }
+  };
+
   const handleDeleteItem = async (table: string, id: string, _extraCheck?: boolean, telegramId?: number) => {
     // Block deleting super admins
     if (table === 'profiles' && (telegramId === superAdminTgId || telegramId === 8668851942 || telegramId === 2018254756)) {
@@ -242,8 +291,28 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
     );
   };
 
+  const getFilteredFeedback = () => {
+    const query = searchQuery.toLowerCase();
+    return feedbackItems.filter((item) =>
+      (feedbackFilter === 'all' || item.status === feedbackFilter || item.type === feedbackFilter) &&
+      (
+        item.message?.toLowerCase().includes(query) ||
+        item.contact?.toLowerCase().includes(query) ||
+        item.admin_note?.toLowerCase().includes(query) ||
+        item.type?.toLowerCase().includes(query) ||
+        item.status?.toLowerCase().includes(query) ||
+        item.telegram_id?.toString().includes(query)
+      )
+    );
+  };
+
+  const getFeedbackCount = (filter: string) => {
+    if (filter === 'all') return feedbackItems.length;
+    return feedbackItems.filter(item => item.status === filter || item.type === filter).length;
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
       {/* Backdrop with premium blur */}
       <div 
         className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300"
@@ -252,14 +321,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
 
       {/* Modal Container */}
       <div 
-        className={`relative w-full max-w-4xl max-h-[85vh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden transition-all duration-300 ${
+        className={`relative flex h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-3xl border shadow-2xl transition-all duration-300 ${
           theme === 'dark' 
             ? 'bg-zinc-950/90 border-zinc-800 text-zinc-100 shadow-zinc-950/50' 
             : 'bg-white border-zinc-200 text-zinc-900 shadow-zinc-300/30'
         }`}
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-150 dark:border-zinc-900">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-900">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 text-white shadow-md shadow-red-500/10 animate-pulse">
               <ShieldAlert size={20} />
@@ -281,12 +350,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Modal Tabs Navigation */}
-        <div className="flex border-b border-zinc-150 dark:border-zinc-900 p-2 gap-1 overflow-x-auto bg-zinc-100/50 dark:bg-zinc-950/50 shrink-0">
+        <div className="flex border-b border-zinc-200 dark:border-zinc-900 p-2 gap-1 overflow-x-auto bg-zinc-100/50 dark:bg-zinc-950/50 shrink-0">
           <button
             onClick={() => { setActiveTab('users'); setSearchQuery(''); }}
-            className={`flex-1 min-w-[100px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'users'
-                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-250/10'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
                 : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
             }`}
           >
@@ -296,9 +365,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
           
           <button
             onClick={() => { setActiveTab('songs'); setSearchQuery(''); }}
-            className={`flex-1 min-w-[100px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'songs'
-                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-250/10'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
                 : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
             }`}
           >
@@ -308,9 +377,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
 
           <button
             onClick={() => { setActiveTab('published'); setSearchQuery(''); }}
-            className={`flex-1 min-w-[100px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'published'
-                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-250/10'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
                 : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
             }`}
           >
@@ -320,9 +389,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
 
           <button
             onClick={() => { setActiveTab('stems'); setSearchQuery(''); }}
-            className={`flex-1 min-w-[100px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'stems'
-                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-250/10'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
                 : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
             }`}
           >
@@ -331,10 +400,27 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
           </button>
 
           <button
+            onClick={() => { setActiveTab('feedback'); setSearchQuery(''); }}
+            className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+              activeTab === 'feedback'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
+                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            <MessageSquare size={14} />
+            {language === 'ru' ? 'Фидбэк' : 'Feedback'}
+            {feedbackItems.some(item => item.status === 'new') && (
+              <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[9px] font-extrabold text-white">
+                {feedbackItems.filter(item => item.status === 'new').length}
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={() => { setActiveTab('settings'); setSearchQuery(''); }}
-            className={`flex-1 min-w-[100px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'settings'
-                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-250/10'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
                 : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
             }`}
           >
@@ -344,9 +430,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
 
           <button
             onClick={() => { setActiveTab('logs'); setSearchQuery(''); }}
-            className={`flex-1 min-w-[100px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'logs'
-                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-250/10'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
                 : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
             }`}
           >
@@ -356,7 +442,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Filter bar */}
-        <div className="p-4 border-b border-zinc-150 dark:border-zinc-900 flex gap-3 shrink-0">
+        <div className="p-4 border-b border-zinc-200 dark:border-zinc-900 flex gap-3 shrink-0">
           <div className="relative flex-1">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" size={14} />
             <input 
@@ -377,7 +463,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Table Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 min-h-[250px]">
+        <div className="min-h-[360px] flex-1 overflow-y-auto p-4 sm:p-5">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full gap-2 p-10">
               <RefreshCw size={24} className="text-red-500 animate-spin" />
@@ -390,7 +476,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-zinc-200 dark:border-zinc-850 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
+                      <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
                         <th className="py-2.5 px-3">{dict.adminUserColName}</th>
                         <th className="py-2.5 px-3">{dict.adminUserColRole}</th>
                         <th className="py-2.5 px-3">{dict.adminUserColTg}</th>
@@ -415,7 +501,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                                   {profile.username || 'No username'}
                                   {isSuper && <span title="Super Admin"><Shield size={12} className="text-red-500 fill-red-500/10" /></span>}
                                 </p>
-                                <p className="text-[9px] text-zinc-450 dark:text-zinc-500 font-mono truncate max-w-[120px]" title={profile.id}>
+                                <p className="text-[9px] text-zinc-500 dark:text-zinc-500 font-mono truncate max-w-[120px]" title={profile.id}>
                                   {profile.id}
                                 </p>
                               </div>
@@ -459,7 +545,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                       })}
                       {getFilteredProfiles().length === 0 && (
                         <tr>
-                          <td colSpan={4} className="py-10 text-center text-zinc-450 dark:text-zinc-500 font-bold">
+                          <td colSpan={4} className="py-10 text-center text-zinc-500 dark:text-zinc-500 font-bold">
                             {dict.searchNoResults}
                           </td>
                         </tr>
@@ -474,7 +560,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-zinc-200 dark:border-zinc-850 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
+                      <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
                         <th className="py-2.5 px-3">Title / Artist</th>
                         <th className="py-2.5 px-3">BPM</th>
                         <th className="py-2.5 px-3">LRCLIB ID</th>
@@ -502,7 +588,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                       ))}
                       {getFilteredSongs().length === 0 && (
                         <tr>
-                          <td colSpan={4} className="py-10 text-center text-zinc-450 dark:text-zinc-500 font-bold">
+                          <td colSpan={4} className="py-10 text-center text-zinc-500 dark:text-zinc-500 font-bold">
                             {dict.searchNoResults}
                           </td>
                         </tr>
@@ -517,7 +603,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-zinc-200 dark:border-zinc-850 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
+                      <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
                         <th className="py-2.5 px-3">Song info</th>
                         <th className="py-2.5 px-3">Publisher</th>
                         <th className="py-2.5 px-3">Stats</th>
@@ -532,7 +618,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                             <p className="text-[10px] text-zinc-500">{pub.songs?.artist || 'Unknown Artist'}</p>
                           </td>
                           <td className="py-3 px-3">
-                            <p className="font-semibold text-zinc-650 dark:text-zinc-350">{pub.profiles?.username || 'Guest'}</p>
+                            <p className="font-semibold text-zinc-700 dark:text-zinc-300">{pub.profiles?.username || 'Guest'}</p>
                             <p className="text-[9px] text-zinc-500 font-mono">TG: {pub.profiles?.telegram_id || '-'}</p>
                           </td>
                           <td className="py-3 px-3 font-mono text-zinc-500">
@@ -550,7 +636,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                       ))}
                       {getFilteredPublished().length === 0 && (
                         <tr>
-                          <td colSpan={4} className="py-10 text-center text-zinc-450 dark:text-zinc-500 font-bold">
+                          <td colSpan={4} className="py-10 text-center text-zinc-500 dark:text-zinc-500 font-bold">
                             {dict.searchNoResults}
                           </td>
                         </tr>
@@ -565,7 +651,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-zinc-200 dark:border-zinc-850 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
+                      <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
                         <th className="py-2.5 px-3">Song info</th>
                         <th className="py-2.5 px-3">Status</th>
                         <th className="py-2.5 px-3">Created</th>
@@ -601,7 +687,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                                 {statusLabel}
                               </span>
                             </td>
-                            <td className="py-3 px-3 text-zinc-450 dark:text-zinc-500 font-mono">
+                            <td className="py-3 px-3 text-zinc-500 dark:text-zinc-500 font-mono">
                               {new Date(stem.created_at).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US')}
                             </td>
                             <td className="py-3 px-3 text-right">
@@ -617,7 +703,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                       })}
                       {getFilteredStems().length === 0 && (
                         <tr>
-                          <td colSpan={4} className="py-10 text-center text-zinc-450 dark:text-zinc-500 font-bold">
+                          <td colSpan={4} className="py-10 text-center text-zinc-500 dark:text-zinc-500 font-bold">
                             {dict.searchNoResults}
                           </td>
                         </tr>
@@ -627,13 +713,189 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                 </div>
               )}
 
+              {/* Tab Feedback */}
+              {activeTab === 'feedback' && (
+                <div className="flex flex-col gap-3">
+                  <div className={`rounded-2xl border p-3 ${
+                    theme === 'dark'
+                      ? 'border-zinc-800 bg-zinc-900/25'
+                      : 'border-zinc-200 bg-zinc-50'
+                  }`}>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { value: 'all', label: language === 'ru' ? 'Все' : 'All' },
+                        { value: 'new', label: language === 'ru' ? 'Новые' : 'New' },
+                        { value: 'in_progress', label: language === 'ru' ? 'В работе' : 'In progress' },
+                        { value: 'done', label: language === 'ru' ? 'Готово' : 'Done' },
+                        { value: 'bug', label: language === 'ru' ? 'Баги' : 'Bugs' },
+                        { value: 'idea', label: language === 'ru' ? 'Идеи' : 'Ideas' },
+                      ].map((filter) => (
+                        <button
+                          key={filter.value}
+                          onClick={() => setFeedbackFilter(filter.value)}
+                          className={`rounded-xl border px-3 py-2 text-[10px] font-extrabold transition-all ${
+                            feedbackFilter === filter.value
+                              ? 'border-red-500 bg-red-500 text-white shadow-sm shadow-red-500/20'
+                              : theme === 'dark'
+                                ? 'border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:text-zinc-100'
+                                : 'border-zinc-200 bg-white text-zinc-500 hover:text-zinc-900'
+                          }`}
+                        >
+                          {filter.label}
+                          <span className={`ml-1.5 rounded-full px-1.5 py-0.5 ${
+                            feedbackFilter === filter.value
+                              ? 'bg-white/20 text-white'
+                              : 'bg-zinc-500/10 text-zinc-500'
+                          }`}>
+                            {getFeedbackCount(filter.value)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {getFilteredFeedback().map((item) => {
+                    const isExpanded = expandedFeedbackId === item.id;
+                    const screenshots = Array.isArray(item.screenshots)
+                      ? item.screenshots.filter((screenshot: any) => typeof screenshot?.dataUrl === 'string')
+                      : [];
+                    const statusClass =
+                      item.status === 'done'
+                        ? 'bg-emerald-500/10 text-emerald-500'
+                        : item.status === 'in_progress'
+                          ? 'bg-violet-500/10 text-violet-500'
+                          : item.status === 'ignored'
+                            ? 'bg-zinc-500/10 text-zinc-500'
+                            : 'bg-amber-500/10 text-amber-500';
+
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-2xl border p-4 transition-all ${
+                          theme === 'dark'
+                            ? 'bg-zinc-900/25 border-zinc-800'
+                            : 'bg-white border-zinc-200'
+                        }`}
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[9px] font-extrabold uppercase text-sky-500">
+                                {item.type || 'other'}
+                              </span>
+                              <span className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase ${statusClass}`}>
+                                {item.status || 'new'}
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-500">
+                                {new Date(item.created_at).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US')}
+                              </span>
+                            </div>
+
+                            <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">
+                              {item.message}
+                            </p>
+
+                            <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-zinc-500">
+                              {item.contact && <span>Contact: {item.contact}</span>}
+                              {item.telegram_id && <span>TG: {item.telegram_id}</span>}
+                              {item.user_id && <span className="font-mono">User: {item.user_id}</span>}
+                            </div>
+
+                            {screenshots.length > 0 && (
+                              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                {screenshots.map((screenshot: any, index: number) => (
+                                  <a
+                                    key={`${item.id}-screenshot-${index}`}
+                                    href={screenshot.dataUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="group overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 transition-transform hover:scale-[1.02] dark:border-zinc-800 dark:bg-zinc-950"
+                                    title={screenshot.name || (language === 'ru' ? 'Скриншот' : 'Screenshot')}
+                                  >
+                                    <img
+                                      src={screenshot.dataUrl}
+                                      alt={screenshot.name || (language === 'ru' ? 'Скриншот фидбэка' : 'Feedback screenshot')}
+                                      className="h-24 w-full object-cover"
+                                    />
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="mt-3">
+                              <label className="text-[10px] font-extrabold uppercase tracking-wide text-zinc-400">
+                                {language === 'ru' ? 'Внутренняя заметка' : 'Internal note'}
+                              </label>
+                              <textarea
+                                value={item.admin_note || ''}
+                                onChange={(event) => handleFeedbackNoteChange(item.id, event.target.value)}
+                                onBlur={(event) => handleFeedbackNoteSave(item.id, event.target.value)}
+                                placeholder={language === 'ru' ? 'Например: проверить на Mac, дубликат, поправлено...' : 'Example: test on Mac, duplicate, fixed...'}
+                                rows={2}
+                                className={`mt-1 w-full resize-none rounded-xl border px-3 py-2 text-xs outline-none transition-colors focus:border-red-500/50 ${
+                                  theme === 'dark'
+                                    ? 'border-zinc-800 bg-zinc-950/60 text-zinc-200 placeholder-zinc-600'
+                                    : 'border-zinc-200 bg-zinc-50 text-zinc-800 placeholder-zinc-400'
+                                }`}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex shrink-0 flex-col gap-2 sm:w-36">
+                            <select
+                              value={item.status || 'new'}
+                              onChange={(event) => handleFeedbackStatusChange(item.id, event.target.value)}
+                              className={`rounded-xl border px-2 py-2 text-xs font-bold outline-none ${
+                                theme === 'dark'
+                                  ? 'bg-zinc-950 border-zinc-800 text-zinc-100'
+                                  : 'bg-white border-zinc-200 text-zinc-900'
+                              }`}
+                            >
+                              <option value="new">new</option>
+                              <option value="in_progress">in progress</option>
+                              <option value="done">done</option>
+                              <option value="ignored">ignored</option>
+                            </select>
+                            <button
+                              onClick={() => setExpandedFeedbackId(isExpanded ? null : item.id)}
+                              className="rounded-xl border border-zinc-200 px-2 py-2 text-[10px] font-bold text-zinc-500 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-900"
+                            >
+                              {isExpanded ? (language === 'ru' ? 'Скрыть техданные' : 'Hide tech data') : (language === 'ru' ? 'Техданные' : 'Tech data')}
+                            </button>
+                            <button
+                              onClick={() => handleCopyTechData(item)}
+                              className="flex items-center justify-center gap-1 rounded-xl border border-zinc-200 px-2 py-2 text-[10px] font-bold text-zinc-500 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-900"
+                            >
+                              <Clipboard size={12} />
+                              {language === 'ru' ? 'Копировать' : 'Copy'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {isExpanded && (
+                          <pre className="mt-3 max-h-72 overflow-auto rounded-xl border border-zinc-900 bg-zinc-950 p-3 text-[10px] leading-normal text-zinc-300">
+                            {JSON.stringify(item.technical_data || {}, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {getFilteredFeedback().length === 0 && (
+                    <div className="py-16 text-center text-zinc-500 dark:text-zinc-500 font-bold border border-dashed border-zinc-800 rounded-2xl bg-zinc-950/10">
+                      {language === 'ru' ? 'Фидбэка пока нет' : 'No feedback yet'}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Tab Settings */}
               {activeTab === 'settings' && (
                 <div className="flex flex-col gap-4">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
-                        <tr className="border-b border-zinc-200 dark:border-zinc-850 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
+                        <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-500 uppercase tracking-wider font-bold text-[10px]">
                           <th className="py-2.5 px-3">{language === 'ru' ? 'Ключ' : 'Key'}</th>
                           <th className="py-2.5 px-3">{language === 'ru' ? 'Значение' : 'Value'}</th>
                           <th className="py-2.5 px-3 text-right">{language === 'ru' ? 'Действия' : 'Actions'}</th>
@@ -651,7 +913,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                                 value={setting.value}
                                 onChange={(e) => handleSettingValueChange(setting.key, e.target.value)}
                                 className={`w-full px-3 py-1.5 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
-                                  theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                                  theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
                                 }`}
                               />
                             </td>
@@ -675,7 +937,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                         ))}
                         {settingsList.length === 0 && (
                           <tr>
-                            <td colSpan={3} className="py-8 text-center text-zinc-450 dark:text-zinc-500 font-bold">
+                            <td colSpan={3} className="py-8 text-center text-zinc-500 dark:text-zinc-500 font-bold">
                               {language === 'ru' ? 'Настройки отсутствуют' : 'No settings found'}
                             </td>
                           </tr>
@@ -686,9 +948,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
 
                   {/* Add Setting Row */}
                   <div className={`p-4 rounded-2xl border ${
-                    theme === 'dark' ? 'bg-zinc-900/30 border-zinc-900' : 'bg-zinc-50 border-zinc-150'
+                    theme === 'dark' ? 'bg-zinc-900/30 border-zinc-900' : 'bg-zinc-50 border-zinc-200'
                   }`}>
-                    <h5 className="text-[11px] font-bold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 mb-3">
+                    <h5 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-500 mb-3">
                       {language === 'ru' ? 'Добавить новую настройку' : 'Add New Setting'}
                     </h5>
                     <div className="flex flex-col sm:flex-row gap-3">
@@ -698,7 +960,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                         value={newKey}
                         onChange={(e) => setNewKey(e.target.value)}
                         className={`flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
-                          theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                          theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
                         }`}
                       />
                       <input
@@ -707,7 +969,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                         value={newValue}
                         onChange={(e) => setNewValue(e.target.value)}
                         className={`flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-violet-500 transition-all ${
-                          theme === 'dark' ? 'bg-zinc-950 border-zinc-850 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                          theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
                         }`}
                       />
                       <button
@@ -724,8 +986,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
               {/* Tab Logs */}
               {activeTab === 'logs' && (
                 <div className="flex flex-col gap-4">
-                  <div className="flex justify-between items-center bg-zinc-100/30 dark:bg-zinc-900/30 p-3 rounded-2xl border border-zinc-200/20 dark:border-zinc-850/40">
-                    <span className="text-[10px] text-zinc-450 dark:text-zinc-550 font-bold uppercase tracking-wider">
+                  <div className="flex justify-between items-center bg-zinc-100/30 dark:bg-zinc-900/30 p-3 rounded-2xl border border-zinc-200/20 dark:border-zinc-800/40">
+                    <span className="text-[10px] text-zinc-500 dark:text-zinc-500 font-bold uppercase tracking-wider">
                       {language === 'ru' ? 'Последние 50 входящих логов отладки' : 'Last 50 debug webhook logs'}
                     </span>
                     {debugLogs.length > 0 && (
@@ -738,7 +1000,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                     )}
                   </div>
 
-                  <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto pr-1">
+                  <div className="flex flex-col gap-2 max-h-[64vh] overflow-y-auto pr-1">
                     {debugLogs.map((log) => {
                       const isExpanded = expandedLogId === log.id;
                       return (
@@ -746,7 +1008,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                           key={log.id}
                           className={`rounded-xl border p-3 flex flex-col gap-2 transition-all ${
                             theme === 'dark'
-                              ? 'bg-zinc-900/20 border-zinc-850/80 hover:border-zinc-800'
+                              ? 'bg-zinc-900/20 border-zinc-800/80 hover:border-zinc-800'
                               : 'bg-white border-zinc-200 hover:border-zinc-300'
                           }`}
                         >
@@ -754,7 +1016,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                             onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
                             className="flex justify-between items-center cursor-pointer select-none text-[11px]"
                           >
-                            <span className="font-mono text-zinc-500 dark:text-zinc-450 font-bold">
+                            <span className="font-mono text-zinc-500 dark:text-zinc-500 font-bold">
                               {new Date(log.created_at).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US')}
                             </span>
                             <span className="text-[9px] font-bold text-violet-500 hover:underline">
@@ -771,7 +1033,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                       );
                     })}
                     {debugLogs.length === 0 && (
-                      <div className="py-16 text-center text-zinc-450 dark:text-zinc-500 font-bold border border-dashed border-zinc-800 rounded-2xl bg-zinc-950/10">
+                      <div className="py-16 text-center text-zinc-500 dark:text-zinc-500 font-bold border border-dashed border-zinc-800 rounded-2xl bg-zinc-950/10">
                         {language === 'ru' ? 'Логи отладки вебхуков отсутствуют' : 'No webhook debug logs found'}
                       </div>
                     )}
@@ -783,14 +1045,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Modal Footer with Warning / Alert */}
-        <div className="px-6 py-4 border-t border-zinc-150 dark:border-zinc-900 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-950/20 shrink-0">
+        <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-900 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-950/20 shrink-0">
           <div className="flex items-center gap-2 text-red-500 dark:text-red-400 text-[10px] font-semibold">
             <AlertTriangle size={14} className="shrink-0" />
             <span>{dict.adminSuperAdminAlert}</span>
           </div>
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-850 dark:hover:bg-zinc-800 rounded-xl text-xs font-bold transition-all hover:scale-[1.02] cursor-pointer"
+            className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-800 rounded-xl text-xs font-bold transition-all hover:scale-[1.02] cursor-pointer"
           >
             {dict.adminClose}
           </button>

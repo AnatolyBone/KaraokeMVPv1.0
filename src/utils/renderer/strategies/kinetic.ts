@@ -1,10 +1,10 @@
-import { RenderFrame, AnimationStrategy } from '../types';
+import { Canvas2DContext, RenderFrame, AnimationStrategy } from '../types';
 import { LyricLine } from '../../../types';
 import { getCachedTextWidth } from '../textCache';
 
 export class KineticTypographyStrategy implements AnimationStrategy {
   render(
-    ctx: CanvasRenderingContext2D,
+    ctx: Canvas2DContext,
     frame: RenderFrame,
     fromLine: LyricLine | null,
     toLine: LyricLine | null,

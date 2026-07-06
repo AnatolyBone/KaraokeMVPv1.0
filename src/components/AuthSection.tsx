@@ -32,11 +32,11 @@ export const AuthSection: React.FC = () => {
     syncProjects,
     language,
     theme,
-    userProfile,
   } = useKaraokeStore();
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [waitingForTelegram, setWaitingForTelegram] = useState(false);
+  const [telegramAuthLink, setTelegramAuthLink] = useState<string | null>(null);
   const dict = localization[language];
 
   // Проверка, запущены ли мы внутри Telegram WebApp
@@ -85,7 +85,6 @@ export const AuthSection: React.FC = () => {
       if (error) throw error;
 
       if (data.user) {
-        localStorage.setItem('karaoke_saved_credentials', JSON.stringify({ email, password }));
         setUser(data.user);
         useKaraokeStore.getState().syncProjects();
       }
@@ -104,6 +103,7 @@ export const AuthSection: React.FC = () => {
 
   const handleTelegramAppLinkAuth = async () => {
     setErrorMsg(null);
+    setTelegramAuthLink(null);
     setWaitingForTelegram(true);
     
     const newSessionId = crypto.randomUUID();
@@ -117,7 +117,14 @@ export const AuthSection: React.FC = () => {
 
       const botName = 'lrckaraoke_bot';
       const tgLink = `https://t.me/${botName}?start=auth_${newSessionId}`;
-      window.open(tgLink, '_blank');
+      setTelegramAuthLink(tgLink);
+      const opened = window.open(tgLink, '_blank');
+      if (!opened) {
+        setErrorMsg(language === 'ru'
+          ? 'Браузер заблокировал открытие Telegram. Нажмите на ссылку ниже вручную.'
+          : 'The browser blocked Telegram. Use the link below manually.'
+        );
+      }
 
       let isSubscribed = true;
 
@@ -138,7 +145,7 @@ export const AuthSection: React.FC = () => {
               isSubscribed = false;
               clearInterval(pollingInterval);
               channel.unsubscribe();
-              await loginWithSessionCredentials(updated.auth_email, updated.auth_password, newSessionId);
+              await redeemAuthSession(newSessionId);
             }
           }
         )
@@ -148,22 +155,12 @@ export const AuthSection: React.FC = () => {
         if (!isSubscribed) return;
         
         try {
-          const { data, error: fetchError } = await supabase
-            .from('telegram_auth_sessions')
-            .select('*')
-            .eq('id', newSessionId)
-            .single();
-
-          if (fetchError) {
-            console.error('Error polling auth session:', fetchError);
-            return;
-          }
-
-          if (data && data.status === 'authorized') {
+          const credentials = await getTelegramAuthCredentials(newSessionId);
+          if (credentials?.auth_email && credentials?.auth_password) {
             isSubscribed = false;
             clearInterval(pollingInterval);
             channel.unsubscribe();
-            await loginWithSessionCredentials(data.auth_email, data.auth_password, newSessionId);
+            await loginWithSessionCredentials(credentials.auth_email, credentials.auth_password);
           }
         } catch (err) {
           console.error('Polling error:', err);
@@ -185,10 +182,51 @@ export const AuthSection: React.FC = () => {
       console.error('Failed to initiate App Telegram Auth:', err);
       setErrorMsg(err.message || dict.authSessionError);
       setWaitingForTelegram(false);
+      setTelegramAuthLink(null);
     }
   };
 
-  const loginWithSessionCredentials = async (email: string, pass: string, sessId: string) => {
+  const getTelegramAuthCredentials = async (sessionId: string): Promise<{ auth_email: string; auth_password: string } | null> => {
+    const { data, error } = await supabase
+      .rpc('redeem_telegram_auth_session', { p_session_id: sessionId });
+
+    if (!error) {
+      const credentials = Array.isArray(data) ? data[0] : data;
+      return credentials?.auth_email && credentials?.auth_password ? credentials : null;
+    }
+
+    const isMissingRpc =
+      error.code === 'PGRST202' ||
+      error.code === '42883' ||
+      /redeem_telegram_auth_session|function/i.test(error.message || '');
+
+    if (!isMissingRpc) throw error;
+
+    const { data: legacyData, error: legacyError } = await supabase
+      .from('telegram_auth_sessions')
+      .select('status, auth_email, auth_password')
+      .eq('id', sessionId)
+      .maybeSingle();
+
+    if (legacyError) throw legacyError;
+    if (legacyData?.status !== 'authorized' || !legacyData.auth_email || !legacyData.auth_password) {
+      return null;
+    }
+
+    await supabase.from('telegram_auth_sessions').delete().eq('id', sessionId);
+    return { auth_email: legacyData.auth_email, auth_password: legacyData.auth_password };
+  };
+
+  const redeemAuthSession = async (sessionId: string) => {
+    const credentials = await getTelegramAuthCredentials(sessionId);
+    if (!credentials) {
+      return;
+    }
+
+    await loginWithSessionCredentials(credentials.auth_email, credentials.auth_password);
+  };
+
+  const loginWithSessionCredentials = async (email: string, pass: string) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -198,7 +236,6 @@ export const AuthSection: React.FC = () => {
       if (error) throw error;
 
       if (data.user) {
-        localStorage.setItem('karaoke_saved_credentials', JSON.stringify({ email, password: pass }));
         setUser(data.user);
         useKaraokeStore.getState().syncProjects();
       }
@@ -207,7 +244,7 @@ export const AuthSection: React.FC = () => {
       setErrorMsg(err.message || dict.authSessionError);
     } finally {
       setWaitingForTelegram(false);
-      await supabase.from('telegram_auth_sessions').delete().eq('id', sessId);
+      setTelegramAuthLink(null);
     }
   };
 
@@ -253,7 +290,6 @@ export const AuthSection: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-      localStorage.removeItem('karaoke_saved_credentials');
       if (import.meta.env.VITE_SUPABASE_URL) {
         await supabase.auth.signOut();
       }
@@ -267,13 +303,13 @@ export const AuthSection: React.FC = () => {
   return (
     <div
       id="auth-section"
-      className={`rounded-2xl p-5 border shadow-sm transition-all duration-300 mb-4 ${
+      className={`rounded-2xl p-6 border shadow-sm transition-all duration-300 mb-4 ${
         theme === 'dark'
-          ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 text-zinc-100 hover:border-violet-500/20'
-          : 'bg-white border-zinc-200 text-zinc-900'
+          ? 'bg-zinc-900/75 backdrop-blur-xl border-white/10 text-zinc-100 shadow-black/20 hover:border-violet-500/25'
+          : 'bg-white/95 border-zinc-200 text-zinc-900 shadow-zinc-200/70'
       }`}
     >
-      <div className="flex items-center gap-2 mb-4 border-b border-zinc-150 dark:border-zinc-900 pb-3 justify-between">
+      <div className="flex items-center gap-2 mb-4 border-b border-zinc-200 dark:border-white/10 pb-3 justify-between">
         <div className="flex items-center gap-2">
           <ShieldCheck className="text-violet-500" size={18} />
           <h4 className="font-bold text-sm uppercase tracking-wider">{dict.authTitle}</h4>
@@ -297,7 +333,7 @@ export const AuthSection: React.FC = () => {
       {user ? (
         <div className="flex flex-col gap-3.5">
           {/* User Profile Card */}
-          <div className="flex items-center gap-3 p-2.5 rounded-xl bg-zinc-100/30 dark:bg-zinc-900/20 border border-zinc-100 dark:border-white/5">
+          <div className="flex items-center gap-3 p-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-950/60 border border-zinc-200/80 dark:border-white/10">
             {user.user_metadata?.avatar_url || user.user_metadata?.photo_url ? (
               <img
                 src={user.user_metadata.avatar_url || user.user_metadata.photo_url}
@@ -313,7 +349,7 @@ export const AuthSection: React.FC = () => {
               <p className="font-bold text-[11px] truncate text-zinc-800 dark:text-zinc-200">
                 {user.user_metadata?.username || user.email?.split('@')[0]}
               </p>
-              <p className="text-[9px] text-zinc-450 dark:text-zinc-500 truncate">
+              <p className="text-[9px] text-zinc-500 dark:text-zinc-400 truncate">
                 {user.email}
               </p>
             </div>
@@ -321,7 +357,7 @@ export const AuthSection: React.FC = () => {
 
           {/* Sync Stats/Feedback */}
           <div className="flex items-center justify-between text-[10px]">
-            <span className="text-zinc-500 dark:text-zinc-450">
+            <span className="text-zinc-600 dark:text-zinc-400">
               {syncing ? dict.authSyncing : dict.authSynced}
             </span>
             <button
@@ -334,29 +370,10 @@ export const AuthSection: React.FC = () => {
             </button>
           </div>
 
-          {userProfile && userProfile.role !== 'admin' && (
-            <button
-              onClick={async () => {
-                const { error } = await supabase
-                  .from('profiles')
-                  .update({ role: 'admin' })
-                  .eq('id', user.id);
-                if (!error) {
-                  await useKaraokeStore.getState().fetchUserProfile(user.id);
-                } else {
-                  alert(error.message);
-                }
-              }}
-              className="w-full py-2.5 rounded-xl border border-red-500/30 text-red-500 bg-red-500/5 hover:bg-red-500/10 font-bold text-[10px] text-center cursor-pointer transition-all duration-300 hover:scale-[1.015] active:scale-95 mb-2"
-            >
-              {language === 'ru' ? 'Получить права администратора' : 'Become Administrator'}
-            </button>
-          )}
-
           {/* Logout Button */}
           <button
             onClick={handleLogout}
-            className="w-full py-2.5 rounded-xl border border-red-500/20 text-red-500 hover:bg-red-500/10 font-bold text-[11px] flex items-center justify-center gap-2 transition-all duration-300 hover:scale-[1.015] active:scale-95"
+            className="w-full py-2.5 rounded-xl border border-red-500/25 text-red-600 dark:text-red-200 bg-red-500/5 hover:bg-red-500/10 font-bold text-[11px] flex items-center justify-center gap-2 transition-all duration-300 hover:scale-[1.015] active:scale-95"
           >
             <LogOut size={13} />
             {dict.authLogout}
@@ -364,7 +381,7 @@ export const AuthSection: React.FC = () => {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          <p className="text-[11px] text-zinc-450 dark:text-zinc-400 leading-relaxed">
+          <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
             {dict.authGuest}
           </p>
 
@@ -397,11 +414,22 @@ export const AuthSection: React.FC = () => {
             {/* Кнопка Mock-входа для локальной отладки */}
             <button
               onClick={handleMockLogin}
-              className="w-full py-2.5 rounded-xl border border-zinc-200 hover:bg-zinc-55 dark:border-zinc-800 dark:hover:bg-zinc-900 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 font-semibold text-[11px] flex items-center justify-center gap-2 transition-all cursor-pointer"
+              className="w-full py-2.5 rounded-xl border border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 font-semibold text-[11px] flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <ShieldCheck size={13} />
               {dict.authMockLogin}
             </button>
+
+            {telegramAuthLink && (
+              <a
+                href={telegramAuthLink}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] text-sky-500 hover:text-sky-400 text-center font-bold underline underline-offset-4"
+              >
+                {language === 'ru' ? 'Открыть Telegram вручную' : 'Open Telegram manually'}
+              </a>
+            )}
           </div>
 
           {errorMsg && (
