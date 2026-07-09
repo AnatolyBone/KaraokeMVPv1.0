@@ -146,6 +146,163 @@ const defaultKeyboard = {
   is_persistent: true
 };
 
+const SUPER_ADMIN_TELEGRAM_IDS = [2018254756, 8668851942];
+
+const adminKeyboard = {
+  keyboard: [
+    [
+      { text: "📊 Статистика" },
+      { text: "🎤 Открыть плеер", web_app: { url: APP_URL } }
+    ],
+    [
+      { text: "🎵 Мой импорт" },
+      { text: "ℹ️ Справка" },
+      { text: "🆘 Поддержка" }
+    ]
+  ],
+  resize_keyboard: true,
+  is_persistent: true
+};
+
+function startOfDayIso(daysAgo = 0) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - daysAgo);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+function sinceHoursIso(hours: number) {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
+async function isTelegramAdmin(supabaseAdmin: any, telegramId: number) {
+  if (SUPER_ADMIN_TELEGRAM_IDS.includes(Number(telegramId))) return true;
+
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('role')
+    .eq('telegram_id', telegramId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Failed to check admin role:', error);
+    return false;
+  }
+
+  return data?.role === 'admin';
+}
+
+async function countRows(supabaseAdmin: any, table: string, filter?: (query: any) => any) {
+  try {
+    let query = supabaseAdmin.from(table).select('*', { count: 'exact', head: true });
+    if (filter) query = filter(query);
+    const { count, error } = await query;
+    if (error) {
+      console.warn(`Failed to count ${table}:`, error);
+      return null;
+    }
+    return count || 0;
+  } catch (err) {
+    console.warn(`Failed to count ${table}:`, err);
+    return null;
+  }
+}
+
+async function countDistinctVisitors(supabaseAdmin: any, sinceIso: string) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('app_events')
+      .select('user_id, telegram_id, anonymous_id')
+      .gte('created_at', sinceIso)
+      .limit(10000);
+
+    if (error) {
+      console.warn('Failed to load app_events for distinct visitors:', error);
+      return null;
+    }
+
+    const unique = new Set<string>();
+    (data || []).forEach((row: any) => {
+      const id = row.user_id || (row.telegram_id ? `tg:${row.telegram_id}` : null) || (row.anonymous_id ? `anon:${row.anonymous_id}` : null);
+      if (id) unique.add(id);
+    });
+    return unique.size;
+  } catch (err) {
+    console.warn('Failed to count distinct visitors:', err);
+    return null;
+  }
+}
+
+function formatCount(value: number | null) {
+  return value === null ? 'н/д' : value.toString();
+}
+
+async function buildAdminStatsMessage(supabaseAdmin: any) {
+  const todayIso = startOfDayIso(0);
+  const weekIso = startOfDayIso(7);
+  const dayAgoIso = sinceHoursIso(24);
+  const generatedAt = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+
+  const [
+    usersTotal,
+    usersToday,
+    usersWeek,
+    appEventsToday,
+    visitorsToday,
+    visitorsWeek,
+    audioTotal,
+    audioToday,
+    audioWeek,
+    projectsTotal,
+    publicationsTotal,
+    publicationsToday,
+    feedbackNew,
+    feedbackTotal,
+    logs24h,
+  ] = await Promise.all([
+    countRows(supabaseAdmin, 'profiles'),
+    countRows(supabaseAdmin, 'profiles', (q) => q.gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'profiles', (q) => q.gte('created_at', weekIso)),
+    countRows(supabaseAdmin, 'app_events', (q) => q.gte('created_at', todayIso)),
+    countDistinctVisitors(supabaseAdmin, todayIso),
+    countDistinctVisitors(supabaseAdmin, weekIso),
+    countRows(supabaseAdmin, 'telegram_audio_shares'),
+    countRows(supabaseAdmin, 'telegram_audio_shares', (q) => q.gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'telegram_audio_shares', (q) => q.gte('created_at', weekIso)),
+    countRows(supabaseAdmin, 'projects'),
+    countRows(supabaseAdmin, 'published_karaoke'),
+    countRows(supabaseAdmin, 'published_karaoke', (q) => q.gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'feedback', (q) => q.eq('status', 'new')),
+    countRows(supabaseAdmin, 'feedback'),
+    countRows(supabaseAdmin, 'telegram_bot_debug_logs', (q) => q.gte('created_at', dayAgoIso)),
+  ]);
+
+  return `📊 *Статистика Karaoke LRC Maker*\n\n` +
+    `👥 *Пользователи*\n` +
+    `- Всего: *${formatCount(usersTotal)}*\n` +
+    `- Новых сегодня: *${formatCount(usersToday)}*\n` +
+    `- Новых за 7 дней: *${formatCount(usersWeek)}*\n\n` +
+    `🌐 *Посещаемость приложения*\n` +
+    `- Событий сегодня: *${formatCount(appEventsToday)}*\n` +
+    `- Уникальных сегодня: *${formatCount(visitorsToday)}*\n` +
+    `- Уникальных за 7 дней: *${formatCount(visitorsWeek)}*\n\n` +
+    `🎵 *Импорт аудио из Telegram*\n` +
+    `- Всего треков: *${formatCount(audioTotal)}*\n` +
+    `- Сегодня: *${formatCount(audioToday)}*\n` +
+    `- За 7 дней: *${formatCount(audioWeek)}*\n\n` +
+    `🗂 *Проекты и каталог*\n` +
+    `- Черновиков: *${formatCount(projectsTotal)}*\n` +
+    `- Публикаций: *${formatCount(publicationsTotal)}*\n` +
+    `- Публикаций сегодня: *${formatCount(publicationsToday)}*\n\n` +
+    `💬 *Фидбэк*\n` +
+    `- Новых обращений: *${formatCount(feedbackNew)}*\n` +
+    `- Всего обращений: *${formatCount(feedbackTotal)}*\n\n` +
+    `⚙️ *Система*\n` +
+    `- Логов вебхука за 24ч: *${formatCount(logs24h)}*\n` +
+    `- Обновлено: ${generatedAt} МСК\n\n` +
+    `🔗 *Админка*: ${APP_URL}?admin=1`;
+}
+
 
 // Автоматическая конфигурация бота (кнопка меню, команды, описание)
 async function configureBot(botToken: string) {
@@ -174,7 +331,8 @@ async function configureBot(botToken: string) {
       body: JSON.stringify({
         commands: [
           { command: 'start', description: 'Запустить плеер и авторизоваться' },
-          { command: 'help', description: 'Показать описание и справку' }
+          { command: 'help', description: 'Показать описание и справку' },
+          { command: 'admin', description: 'Статистика проекта' }
         ]
       })
     });
@@ -472,6 +630,19 @@ Deno.serve(async (req) => {
 
       if (fromUser) {
         const adminId = 2018254756;
+        const normalizedText = text.trim().split(/\s+/)[0]?.split('@')[0] || '';
+
+        if (normalizedText === '/admin' || text === '📊 Статистика') {
+          const canViewAdmin = await isTelegramAdmin(supabaseAdmin, fromUser.id);
+          if (!canViewAdmin) {
+            await sendTelegramMessage(chatId, '⛔️ Эта команда доступна только администратору проекта.', botToken, defaultKeyboard);
+            return new Response('Unauthorized admin stats attempt', { status: 200 });
+          }
+
+          const statsText = await buildAdminStatsMessage(supabaseAdmin);
+          await sendTelegramMessage(chatId, statsText, botToken, adminKeyboard);
+          return new Response('Admin stats processed', { status: 200 });
+        }
 
         // Сценарий 1: Ответ администратора на сообщение поддержки
         if (fromUser.id === adminId && body.message.reply_to_message) {

@@ -6,6 +6,13 @@ import { createCanvas } from '../canvasHelper';
 // Кэшируем обложку с тенями и скруглениями, чтобы не вызывать тяжелый shadowBlur каждый кадр
 let cachedCoverCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 let cachedCoverKey = '';
+const MODERN_VIDEO_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
+
+function getSplitFontFamily(frame: RenderFrame): string {
+  return frame.styleOptions.preset === 'apple-music' || frame.styleOptions.preset === 'minimal-cinema'
+    ? MODERN_VIDEO_FONT
+    : frame.styleOptions.fontFamily;
+}
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -84,7 +91,7 @@ export class SplitScreenStrategy implements AnimationStrategy {
 
       ctx.save();
       ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.font = `${resolution === '1080p' ? 20 : 13}px ${styleOptions.fontFamily}`;
+      ctx.font = `500 ${resolution === '1080p' ? 20 : 13}px ${getSplitFontFamily(frame)}`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       ctx.fillText(curTimeStr, barX, barY + (resolution === '1080p' ? 16 : 10));
@@ -208,14 +215,14 @@ export class SplitScreenStrategy implements AnimationStrategy {
     
     // Название трека
     ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${resolution === '1080p' ? 42 : 28}px ${styleOptions.fontFamily}`;
+    ctx.font = `700 ${resolution === '1080p' ? 42 : 28}px ${getSplitFontFamily(frame)}`;
     ctx.fillText(title, textX, textY, panelMaxTextW);
 
     // Артист
     const offsetArtist = (isVertical || isSquare) ? (resolution === '1080p' ? 30 : 20) : (resolution === '1080p' ? 45 : 30);
     const artistY = textY + offsetArtist;
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.font = `${resolution === '1080p' ? 28 : 18}px ${styleOptions.fontFamily}`;
+    ctx.font = `500 ${resolution === '1080p' ? 28 : 18}px ${getSplitFontFamily(frame)}`;
     ctx.fillText(artist, textX, artistY, panelMaxTextW);
 
     // Прогресс-бар (только для горизонтального 16:9 режима, для вертикального/квадратного перенесен вниз)
@@ -250,6 +257,10 @@ export class SplitScreenStrategy implements AnimationStrategy {
     activeIdx: number
   ) {
     const { styleOptions, coverColors, time, resolution } = frame;
+    const splitFontFamily = getSplitFontFamily(frame);
+    const textStyleOptions = splitFontFamily === styleOptions.fontFamily
+      ? styleOptions
+      : { ...styleOptions, fontFamily: splitFontFamily };
     
     ctx.save();
     
@@ -316,7 +327,8 @@ export class SplitScreenStrategy implements AnimationStrategy {
       const baseScale = isVertical ? 0.82 : 0.9; // Сделаем шрифт чуть меньше для списка
       const scale = baseScale + (lineProgress * 0.18); // +18% для активной строки (до 100% в 9:16)
 
-      const activeFont = `bold ${styleOptions.fontSize}px ${styleOptions.fontFamily}`;
+      const fontWeight = styleOptions.preset === 'apple-music' || styleOptions.preset === 'minimal-cinema' ? 600 : 'bold';
+      const activeFont = `${fontWeight} ${styleOptions.fontSize}px ${splitFontFamily}`;
       // Текст должен вписываться в панель с отступами
       const maxTextWidth = rect.w * 0.88;
       
@@ -324,7 +336,7 @@ export class SplitScreenStrategy implements AnimationStrategy {
       ctx.translate(centerX, lineY);
       ctx.scale(scale, scale);
 
-      const prerender = getPrerenderedText(ctx, line, activeFont, styleOptions, glowColor, maxTextWidth);
+      const prerender = getPrerenderedText(ctx, line, activeFont, textStyleOptions, glowColor, maxTextWidth);
 
       // Глобальная прозрачность
       // Базовая для всех - 0.5, для активной до 1.0 (чтобы не было слишком темно)
@@ -401,3 +413,4 @@ export class SplitScreenStrategy implements AnimationStrategy {
     ctx.restore();
   }
 }
+

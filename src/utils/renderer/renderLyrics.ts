@@ -2,6 +2,7 @@ import { Canvas2DContext, RenderFrame } from './types';
 import { LyricLine } from '../../types';
 import { calculateSubtitlesLayout } from './layout/calculateLayout';
 import { getAnimationStrategy } from './strategies';
+import { renderTitleCard } from './renderTitleCard';
 
 export function renderLyrics(
   ctx: Canvas2DContext,
@@ -18,6 +19,8 @@ export function renderLyrics(
     ...frame,
     easedProgress: layout.easedProgress,
   };
+
+  renderTitleCard(ctx, enrichedFrame, timedLines);
 
   // Шаг 2: Чистый рендеринг через паттерн-стратегию без micro-jitter (Pure Render Contract)
   const strategy = getAnimationStrategy(styleOptions.animationStyle);

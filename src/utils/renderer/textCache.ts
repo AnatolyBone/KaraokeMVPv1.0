@@ -52,8 +52,8 @@ function fitFontToWidth(
   const scale = (maxWidth / textWidth) * 0.96;
   const fittedFontSize = Math.max(Math.floor(fontSize * scale), 12);
   // Сохраняем bold если оно было в оригинальном font
-  const isBold = font.startsWith('bold');
-  const fittedFont = `${isBold ? 'bold ' : ''}${fittedFontSize}px ${fontFamily}`;
+  const weightMatch = font.match(/^(bold|[1-9]00)\s+/);
+  const fittedFont = `${weightMatch ? `${weightMatch[1]} ` : ''}${fittedFontSize}px ${fontFamily}`;
   return { fittedFont, fittedFontSize };
 }
 

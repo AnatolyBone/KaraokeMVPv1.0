@@ -72,6 +72,9 @@ export const SidePanel: React.FC = () => {
 
       {appMode === 'editor' && (
         <>
+          {/* Project library and save */}
+          <RecentProjects />
+
           {/* Statistics widget */}
           <div
             className={`rounded-2xl p-6 border shadow-sm transition-all duration-300 ${
@@ -192,9 +195,6 @@ export const SidePanel: React.FC = () => {
               </div>
             )}
           </div>
-
-          {/* Recent Projects Swapper */}
-          <RecentProjects />
         </>
       )}
 

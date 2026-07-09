@@ -3,15 +3,21 @@ import { useKaraokeStore } from '../store/useKaraokeStore';
 import { supabase } from '../services/supabaseClient';
 import { getStoragePublicUrl } from '../services/supabaseLyricsService';
 import { extractDominantColors } from '../utils/colors';
-import { Music, Play, Search, Heart, Loader2, Disc, Library } from 'lucide-react';
+import { Music, Play, Search, Heart, Loader2, Disc, Library, Share2 } from 'lucide-react';
 import { lrclibProviderInstance } from '../services/lrclibService';
 import { parseLRC } from '../utils/lrc';
 
 
-export const KaraokeCatalog: React.FC = () => {
+interface KaraokeCatalogProps {
+  onTrackLoaded?: () => void;
+  onRequestPublish?: () => void;
+}
+
+export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, onRequestPublish }) => {
   const {
     theme,
     language,
+    lines,
     setAudio,
     setLines,
     setCover,
@@ -29,6 +35,8 @@ export const KaraokeCatalog: React.FC = () => {
 
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const timedLinesCount = lines.filter((line) => line.time !== null).length;
+  const canPublishCurrentProject = timedLinesCount > 0;
 
   const handleSearch = async (query: string) => {
     if (!query.trim()) {
@@ -244,6 +252,7 @@ export const KaraokeCatalog: React.FC = () => {
           }
           // Переключаем пользователя в режим редактора на шаг синхронизации/просмотра
           useKaraokeStore.setState({ step: 'timing' });
+          onTrackLoaded?.();
         }
         return;
       }
@@ -261,6 +270,7 @@ export const KaraokeCatalog: React.FC = () => {
           setRawText('');
           setLines([]);
           useKaraokeStore.setState({ step: 'input' });
+          onTrackLoaded?.();
         }
         return;
       }
@@ -280,6 +290,8 @@ export const KaraokeCatalog: React.FC = () => {
         setCover(null);
         setCoverColors(null);
       }
+
+      onTrackLoaded?.();
     } catch (err) {
       console.error('Failed to load track from catalog:', err);
       alert(language === 'ru' ? 'Ошибка загрузки трека' : 'Error loading track');
@@ -305,6 +317,12 @@ export const KaraokeCatalog: React.FC = () => {
     } catch (err) {
       console.error('Failed to like track:', err);
     }
+  };
+
+  const handleOpenPublicPage = (e: React.MouseEvent, trackId: string) => {
+    e.stopPropagation();
+    window.history.pushState({}, '', `/karaoke/${trackId}`);
+    window.dispatchEvent(new Event('karaoke-route-change'));
   };
 
   const formatDuration = (sec: number | null) => {
@@ -343,7 +361,11 @@ export const KaraokeCatalog: React.FC = () => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={language === 'ru' ? 'Поиск песни или артиста...' : 'Search song or artist...'}
-            className="w-full bg-zinc-950/50 backdrop-blur-md border border-white/5 focus:border-violet-500/40 rounded-xl pl-9 pr-4 py-2.5 text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-violet-500/35 transition-all duration-300 placeholder-zinc-500 hover:border-white/10"
+            className={`w-full backdrop-blur-md border focus:border-violet-500/40 rounded-xl pl-9 pr-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500/35 transition-all duration-300 ${
+              theme === 'dark'
+                ? 'bg-zinc-950/50 border-white/5 text-zinc-200 placeholder-zinc-500 hover:border-white/10'
+                : 'bg-white/78 border-zinc-200/80 text-zinc-900 placeholder-zinc-500 hover:border-violet-300/60'
+            }`}
           />
         </div>
       </div>
@@ -361,6 +383,27 @@ export const KaraokeCatalog: React.FC = () => {
               ? (language === 'ru' ? 'Песни не найдены' : 'No songs found')
               : (language === 'ru' ? 'Каталог пока пуст. Опубликуйте первый трек!' : 'The catalog is empty. Publish the first track!')}
           </span>
+          {!searchQuery.trim() && (
+            <div className="mt-3 flex flex-col items-center gap-2">
+              <p className="max-w-md text-[11px] leading-relaxed text-zinc-500">
+                {language === 'ru'
+                  ? 'Сохранённые проекты остаются в ваших черновиках. Чтобы трек появился здесь, его нужно опубликовать в общий каталог.'
+                  : 'Saved projects stay in your drafts. To show a track here, publish it to the shared catalog.'}
+              </p>
+              <button
+                type="button"
+                disabled={!canPublishCurrentProject || !onRequestPublish}
+                onClick={onRequestPublish}
+                className={`rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all ${
+                  canPublishCurrentProject && onRequestPublish
+                    ? 'bg-violet-600 text-white shadow-lg shadow-violet-600/15 hover:bg-violet-700 hover:scale-[1.02]'
+                    : 'bg-zinc-200 text-zinc-400 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-600'
+                }`}
+              >
+                {language === 'ru' ? 'Опубликовать текущий проект' : 'Publish current project'}
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -437,13 +480,23 @@ export const KaraokeCatalog: React.FC = () => {
                   </div>
 
                   {!isTelegramShare && (
-                    <button
-                      onClick={(e) => handleLike(e, track.id, track.likes_count || 0)}
-                      className="flex items-center gap-1 hover:text-pink-500 transition-colors"
-                    >
-                      <Heart size={11} className="fill-current text-pink-500/20 group-hover:scale-110 transition-transform" />
-                      <span className="font-mono">{track.likes_count || 0}</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => handleOpenPublicPage(e, track.id)}
+                        className="flex items-center gap-1 hover:text-violet-500 transition-colors"
+                        title={language === 'ru' ? 'Открыть публичную страницу' : 'Open public page'}
+                      >
+                        <Share2 size={11} />
+                        <span>{language === 'ru' ? 'Ссылка' : 'Share'}</span>
+                      </button>
+                      <button
+                        onClick={(e) => handleLike(e, track.id, track.likes_count || 0)}
+                        className="flex items-center gap-1 hover:text-pink-500 transition-colors"
+                      >
+                        <Heart size={11} className="fill-current text-pink-500/20 group-hover:scale-110 transition-transform" />
+                        <span className="font-mono">{track.likes_count || 0}</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

@@ -6,6 +6,19 @@ import { parseLRC } from '../utils/lrc';
 import { supabase } from '../services/supabaseClient';
 import { User } from '@supabase/supabase-js';
 import { audioRef } from '../audioRef';
+import {
+  clearProjectMediaFromDB,
+  loadCoverFromDB,
+  loadProjectAudioFromDB,
+  loadProjectCoverFromDB,
+  saveProjectAudioToDB,
+  saveProjectCoverToDB,
+  loadAudioFromDB,
+  saveAudioToDB,
+  saveCoverToDB,
+} from '../utils/db';
+
+const MODERN_VIDEO_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
 
 interface KaraokeState {
   step: AppStep;
@@ -88,8 +101,8 @@ interface KaraokeState {
   setCoverColors: (colors: { primary: string; secondary: string; glow: string } | null) => void;
 
   // Project switcher actions
-  saveCurrentAsProject: (title: string) => void;
-  loadProject: (id: string) => void;
+  saveCurrentAsProject: (title: string) => Promise<void>;
+  loadProject: (id: string) => Promise<void>;
   deleteProject: (id: string) => void;
 
   // Translation actions
@@ -216,9 +229,9 @@ export const useKaraokeStore = create<KaraokeState>()(
 
       videoStyle: {
         preset: 'apple-music',
-        bgType: 'cover-blur',
-        gradientPreset: 'purple-night',
-        fontFamily: 'sans-serif',
+        bgType: 'gradient',
+        gradientPreset: 'ocean',
+        fontFamily: MODERN_VIDEO_FONT,
         fontSize: 48,
         strokeColor: '#000000',
         strokeWidth: 0,
@@ -326,6 +339,20 @@ export const useKaraokeStore = create<KaraokeState>()(
           currentProjectId: id
         });
 
+        try {
+          const currentAudio = await loadAudioFromDB();
+          if (currentAudio) {
+            await saveProjectAudioToDB(id, currentAudio);
+          }
+
+          const currentCover = await loadCoverFromDB();
+          if (currentCover) {
+            await saveProjectCoverToDB(id, currentCover);
+          }
+        } catch (err) {
+          console.warn('Failed to save project media to IndexedDB:', err);
+        }
+
         if (user) {
           try {
             const { error } = await supabase
@@ -348,16 +375,39 @@ export const useKaraokeStore = create<KaraokeState>()(
         }
       },
 
-      loadProject: (id) => {
+      loadProject: async (id) => {
         const { recentProjects } = get();
         const project = recentProjects.find(p => p.id === id);
         if (project) {
+          const previousAudioUrl = get().audioUrl;
+          if (previousAudioUrl?.startsWith('blob:')) {
+            URL.revokeObjectURL(previousAudioUrl);
+          }
+
+          const projectAudio = await loadProjectAudioFromDB(project.id);
+          const projectCover = await loadProjectCoverFromDB(project.id);
+          const audioUrl = projectAudio ? URL.createObjectURL(projectAudio) : null;
+          const coverUrl = projectCover ? URL.createObjectURL(projectCover) : null;
+
+          try {
+            if (projectAudio) {
+              await saveAudioToDB(projectAudio);
+            }
+            if (projectCover) {
+              await saveCoverToDB(projectCover);
+            }
+          } catch (err) {
+            console.warn('Failed to restore project media to current IndexedDB cache:', err);
+          }
+
           set({
             currentProjectId: project.id,
+            audioUrl,
             rawText: project.rawText,
             lines: project.lines,
-            audioFileName: project.audioFileName,
+            audioFileName: projectAudio ? project.audioFileName : null,
             currentProjectTitle: project.title,
+            coverUrl,
             coverColors: project.coverColors,
             step: 'edit',
             currentIndex: project.lines.filter(l => l.time !== null).length,
@@ -375,6 +425,12 @@ export const useKaraokeStore = create<KaraokeState>()(
           recentProjects: recentProjects.filter(p => p.id !== id),
           ...(currentProjectId === id ? { currentProjectId: null } : {})
         });
+
+        try {
+          await clearProjectMediaFromDB(id);
+        } catch (err) {
+          console.warn('Failed to delete project media from IndexedDB:', err);
+        }
 
         if (user) {
           try {
@@ -409,7 +465,9 @@ export const useKaraokeStore = create<KaraokeState>()(
           switch (options.preset) {
             case 'apple-music':
               Object.assign(updated, {
-                bgType: 'cover-blur',
+                bgType: 'gradient',
+                gradientPreset: 'ocean',
+                fontFamily: MODERN_VIDEO_FONT,
                 animationStyle: 'split-screen',
                 fxOverlay: 'fluid-gradient',
                 glowSize: 0,
@@ -421,12 +479,15 @@ export const useKaraokeStore = create<KaraokeState>()(
             case 'spotify':
               Object.assign(updated, {
                 bgType: 'cover-blur',
-                animationStyle: 'apple-music',
-                fxOverlay: 'fluid-gradient',
-                glowSize: 0,
+                animationStyle: 'classic-karaoke',
+                fxOverlay: 'none',
+                glowSize: 6,
+                glowColor: '#1ed760',
                 visualizerType: 'none',
-                activeWordColor: '#1db954',
-                inactiveWordColor: 'rgba(255,255,255,0.3)',
+                activeWordColor: '#f8fff8',
+                inactiveWordColor: 'rgba(255,255,255,0.64)',
+                strokeColor: 'rgba(0,0,0,0.52)',
+                strokeWidth: 2,
               });
               break;
             case 'tiktok-neon':
@@ -435,11 +496,13 @@ export const useKaraokeStore = create<KaraokeState>()(
                 gradientPreset: 'purple-night',
                 animationStyle: 'kinetic',
                 fxOverlay: 'lens-dust',
-                glowSize: 15,
-                glowColor: '#ff007f',
+                glowSize: 8,
+                glowColor: '#ff2fb3',
                 visualizerType: 'bars',
-                activeWordColor: '#00f0ff',
-                inactiveWordColor: 'rgba(255,255,255,0.4)',
+                activeWordColor: '#00eaff',
+                inactiveWordColor: 'rgba(255,255,255,0.62)',
+                strokeColor: 'rgba(0,0,0,0.65)',
+                strokeWidth: 2,
               });
               break;
             case 'classic-karaoke':
@@ -457,6 +520,7 @@ export const useKaraokeStore = create<KaraokeState>()(
             case 'minimal-cinema':
               Object.assign(updated, {
                 bgType: 'split-dark',
+                fontFamily: MODERN_VIDEO_FONT,
                 animationStyle: 'split-screen',
                 fxOverlay: 'lens-dust',
                 glowSize: 0,
@@ -1065,7 +1129,7 @@ export const useKaraokeStore = create<KaraokeState>()(
             preset: 'apple-music',
             bgType: 'cover-blur',
             gradientPreset: 'purple-night',
-            fontFamily: 'sans-serif',
+            fontFamily: MODERN_VIDEO_FONT,
             fontSize: 48,
             strokeColor: '#000000',
             strokeWidth: 0,
@@ -1362,6 +1426,18 @@ export const useKaraokeStore = create<KaraokeState>()(
           
           const timedCount = state.lines.filter(l => l.time !== null).length;
           state.currentIndex = Math.min(timedCount, state.lines.length);
+        }
+        if (state?.videoStyle?.preset === 'apple-music') {
+          state.videoStyle = {
+            ...state.videoStyle,
+            bgType: 'gradient',
+            gradientPreset: 'ocean',
+            animationStyle: 'split-screen',
+            glowSize: 0,
+            visualizerType: 'none',
+            activeWordColor: '#ffffff',
+            inactiveWordColor: 'rgba(255,255,255,0.35)',
+          };
         }
       }
     }

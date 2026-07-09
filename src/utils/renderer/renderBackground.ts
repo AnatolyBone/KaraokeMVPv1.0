@@ -48,9 +48,10 @@ export class BackgroundLayer implements RenderLayer {
 
     // cover-blur: рисуем пульсирующий радиальный градиент из палитры обложки (через уменьшенный оффскрин-холст для 16-кратного ускорения)
     if (styleOptions.bgType === 'cover-blur') {
-      const pColor = coverColors ? coverColors.primary : '#3c0b63';
-      const sColor = coverColors ? coverColors.secondary : '#11031f';
-      const glowColor = coverColors ? coverColors.glow : '#a855f7';
+      const isSpotify = styleOptions.preset === 'spotify';
+      const pColor = isSpotify ? '#0f3d2e' : coverColors ? coverColors.primary : '#3c0b63';
+      const sColor = isSpotify ? '#06130f' : coverColors ? coverColors.secondary : '#11031f';
+      const glowColor = isSpotify ? '#1ed760' : coverColors ? coverColors.glow : '#a855f7';
       
       const scale = 0.25;
       const miniWidth = Math.ceil(width * scale);
@@ -96,6 +97,18 @@ export class BackgroundLayer implements RenderLayer {
         ctx.imageSmoothingEnabled = true;
         (ctx as any).imageSmoothingQuality = 'medium';
         ctx.drawImage(blurCanvas, 0, 0, width, height);
+        if (isSpotify) {
+          const vignette = ctx.createRadialGradient(
+            width * 0.5, height * 0.46,
+            Math.min(width, height) * 0.12,
+            width * 0.5, height * 0.46,
+            Math.max(width, height) * 0.78
+          );
+          vignette.addColorStop(0, 'rgba(0,0,0,0)');
+          vignette.addColorStop(1, 'rgba(0,0,0,0.44)');
+          ctx.fillStyle = vignette;
+          ctx.fillRect(0, 0, width, height);
+        }
         ctx.restore();
       }
       return;
@@ -104,7 +117,7 @@ export class BackgroundLayer implements RenderLayer {
     // Обычные линейные градиенты: кэшируем в отдельную переменную
     // Ключ включает bgType чтобы смена стиля инвалидировала кэш
     const colorKey = coverColors ? `${coverColors.primary}_${coverColors.secondary}_${coverColors.glow}` : 'fallback';
-    const bgKey = `${styleOptions.bgType}_${styleOptions.gradientPreset}_${colorKey}_${width}x${height}`;
+    const bgKey = `${styleOptions.bgType}_${styleOptions.gradientPreset}_${styleOptions.preset}_${colorKey}_${width}x${height}`;
     if (cachedBgCanvas && cachedBgKey === bgKey) {
       ctx.drawImage(cachedBgCanvas, 0, 0);
       return;
@@ -116,7 +129,11 @@ export class BackgroundLayer implements RenderLayer {
 
     if (bgCtx) {
       let grad = bgCtx.createLinearGradient(0, 0, width, height);
-      if (coverColors) {
+      if (styleOptions.preset === 'tiktok-neon') {
+        grad.addColorStop(0, '#05040d');
+        grad.addColorStop(0.48, '#17051f');
+        grad.addColorStop(1, '#02040a');
+      } else if (coverColors) {
         grad.addColorStop(0, coverColors.primary);
         grad.addColorStop(0.48, coverColors.secondary);
         grad.addColorStop(1, '#030108');
@@ -135,6 +152,29 @@ export class BackgroundLayer implements RenderLayer {
       }
       bgCtx.fillStyle = grad;
       bgCtx.fillRect(0, 0, width, height);
+      if (styleOptions.preset === 'tiktok-neon') {
+        const cyanGlow = bgCtx.createRadialGradient(
+          width * 0.18, height * 0.24,
+          0,
+          width * 0.18, height * 0.24,
+          Math.max(width, height) * 0.55
+        );
+        cyanGlow.addColorStop(0, 'rgba(0,234,255,0.2)');
+        cyanGlow.addColorStop(1, 'rgba(0,0,0,0)');
+        bgCtx.fillStyle = cyanGlow;
+        bgCtx.fillRect(0, 0, width, height);
+
+        const magentaGlow = bgCtx.createRadialGradient(
+          width * 0.82, height * 0.72,
+          0,
+          width * 0.82, height * 0.72,
+          Math.max(width, height) * 0.58
+        );
+        magentaGlow.addColorStop(0, 'rgba(255,47,179,0.18)');
+        magentaGlow.addColorStop(1, 'rgba(0,0,0,0)');
+        bgCtx.fillStyle = magentaGlow;
+        bgCtx.fillRect(0, 0, width, height);
+      }
       cachedBgKey = bgKey;
       ctx.drawImage(bgCanvas, 0, 0);
     }

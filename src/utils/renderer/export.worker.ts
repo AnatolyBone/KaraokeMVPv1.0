@@ -7,6 +7,12 @@ import { renderLyrics } from './renderLyrics';
 import { clearTextWidthCache } from './textCache';
 import { RenderFrame } from './types';
 
+const roundMs = (value: number) => Number(value.toFixed(2));
+
+const postRenderLog = (tag: string, message: string, data?: Record<string, unknown>) => {
+  self.postMessage({ type: 'render-log', tag, message, data });
+};
+
 // Перехват консоли для перенаправления логов в главный поток
 const originalLog = console.log;
 const originalWarn = console.warn;
@@ -45,6 +51,8 @@ const yieldToMain = () => new Promise<void>(resolve => {
   channel.port1.onmessage = () => resolve();
   channel.port2.postMessage(null);
 });
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 self.onmessage = async (e: MessageEvent) => {
   const { action } = e.data;
@@ -102,6 +110,26 @@ self.onmessage = async (e: MessageEvent) => {
     .filter((line) => line.time !== null)
     .sort((a, b) => (a.time || 0) - (b.time || 0));
 
+  postRenderLog('config', 'Worker received export job', {
+    width: finalWidth,
+    height: finalHeight,
+    resolution,
+    format,
+    fps,
+    bitrateKbps: bitrate,
+    quality: quality || 'default',
+    hwAccel: hwAccel || 'auto',
+    preset: styleOptions.preset,
+    animationStyle: styleOptions.animationStyle,
+    fxOverlay: styleOptions.fxOverlay,
+    bgType: styleOptions.bgType,
+    aspectRatio: styleOptions.aspectRatio,
+    duration: Number(duration.toFixed(2)),
+    lines: lines.length,
+    timedLines: timedLines.length,
+    hasCover: !!coverBitmap,
+  });
+
   let videoEncoder: VideoEncoder | undefined;
   let audioEncoder: AudioEncoder | undefined;
   let muxer: any = null;
@@ -121,8 +149,11 @@ self.onmessage = async (e: MessageEvent) => {
 
     const targetBitrate = bitrate * 1000; // bitrate in kbps -> bps
 
+    const isFullHdOrLarger = finalWidth * finalHeight >= 1920 * 1080;
+    const h264Level = isFullHdOrLarger ? (fps > 30 ? '2a' : '28') : (fps > 30 ? '20' : '1f');
+
     const videoConfig: VideoEncoderConfig = {
-      codec: format === 'mp4' ? 'avc1.640034' : 'vp09.00.41.08',
+      codec: format === 'mp4' ? `avc1.42e0${h264Level}` : 'vp09.00.41.08',
       width: finalWidth,
       height: finalHeight,
       bitrate: targetBitrate,
@@ -133,7 +164,15 @@ self.onmessage = async (e: MessageEvent) => {
 
     if (typeof VideoEncoder.isConfigSupported === 'function') {
       const codecCandidates = format === 'mp4'
-        ? ['avc1.640034', 'avc1.640033', 'avc1.4d0033', 'avc1.42e033']
+        ? [
+            `avc1.42e0${h264Level}`,
+            `avc1.4d40${h264Level}`,
+            `avc1.6400${h264Level}`,
+            'avc1.42e033',
+            'avc1.4d0033',
+            'avc1.640033',
+            'avc1.640034',
+          ]
         : ['vp09.00.41.08', 'vp09.00.40.08', 'vp09.00.10.08', 'vp8'];
 
       let configured = false;
@@ -157,6 +196,15 @@ self.onmessage = async (e: MessageEvent) => {
     }
 
     videoEncoder.configure(videoConfig);
+    postRenderLog('codec', 'Video codec selected', {
+      codec: videoConfig.codec,
+      hardwareAcceleration: videoConfig.hardwareAcceleration || 'default',
+      width: videoConfig.width,
+      height: videoConfig.height,
+      bitrateKbps: Math.round(targetBitrate / 1000),
+      fps,
+      latencyMode: videoConfig.latencyMode || 'default',
+    });
 
     audioEncoder = new AudioEncoder({
       output: (chunk, metadata) => {
@@ -178,6 +226,12 @@ self.onmessage = async (e: MessageEvent) => {
     };
 
     audioEncoder.configure(audioConfig);
+    postRenderLog('codec', 'Audio codec selected', {
+      codec: audioConfig.codec,
+      channels: numChannels,
+      sampleRate,
+      bitrateKbps: Math.round(audioConfig.bitrate / 1000),
+    });
 
     if (format === 'mp4') {
       muxer = new Mp4Muxer({
@@ -226,6 +280,7 @@ self.onmessage = async (e: MessageEvent) => {
     let audioFramesEncodedCount = 0;
 
     const drawFrame = (time: number) => {
+      const frameStart = performance.now();
       ctx.imageSmoothingEnabled = true;
       (ctx as any).imageSmoothingQuality = 'high';
       const sampleIdx = Math.floor(time * sampleRate);
@@ -254,10 +309,29 @@ self.onmessage = async (e: MessageEvent) => {
         quality,
       };
 
+      const bgStart = performance.now();
       renderBackground(ctx, renderFrame, null);
+      const bgMs = performance.now() - bgStart;
+
+      const particlesStart = performance.now();
       renderParticles(ctx, renderFrame);
+      const particlesMs = performance.now() - particlesStart;
+
+      const visualizerStart = performance.now();
       renderVisualizer(ctx, renderFrame);
+      const visualizerMs = performance.now() - visualizerStart;
+
+      const lyricsStart = performance.now();
       renderLyrics(ctx, renderFrame, timedLines);
+      const lyricsMs = performance.now() - lyricsStart;
+
+      return {
+        totalMs: performance.now() - frameStart,
+        bgMs,
+        particlesMs,
+        visualizerMs,
+        lyricsMs,
+      };
     };
 
     self.postMessage({ type: 'status', status: 'prewarming' });
@@ -268,10 +342,30 @@ self.onmessage = async (e: MessageEvent) => {
       drawFrame(i * FRAME_TIME);
       await yieldToMain();
     }
-    drawFrame(0);
+    const prewarmMetrics = drawFrame(0);
+    postRenderLog('prewarm', 'Prewarm frame rendered', {
+      totalMs: roundMs(prewarmMetrics.totalMs),
+      backgroundMs: roundMs(prewarmMetrics.bgMs),
+      particlesMs: roundMs(prewarmMetrics.particlesMs),
+      visualizerMs: roundMs(prewarmMetrics.visualizerMs),
+      lyricsMs: roundMs(prewarmMetrics.lyricsMs),
+    });
 
     let audioSampleOffset = 0;
     let lastProgressPostTime = 0;
+    let lastPerfPostTime = 0;
+    let lastYieldMs = 0;
+    let lastBackpressureMs = 0;
+    const YIELD_EVERY_FRAMES = 2;
+    const VIDEO_QUEUE_THROTTLE_LIMIT = format === 'mp4' ? 2 : 6;
+    const VIDEO_QUEUE_HARD_FLUSH_LIMIT = format === 'mp4' ? 24 : 48;
+    const KEYFRAME_INTERVAL = Math.max(fps * 4, 60);
+
+    postRenderLog('config', 'Encoder throttle configured', {
+      queueLimit: VIDEO_QUEUE_THROTTLE_LIMIT,
+      hardFlushLimit: VIDEO_QUEUE_HARD_FLUSH_LIMIT,
+      keyframeInterval: KEYFRAME_INTERVAL,
+    });
 
     self.postMessage({ type: 'status', status: 'encoding' });
 
@@ -284,26 +378,50 @@ self.onmessage = async (e: MessageEvent) => {
       }
       if (encoderError) throw encoderError;
 
+      const loopStart = performance.now();
       const time = exportFrame * FRAME_TIME;
 
-      drawFrame(time);
+      const renderMetrics = drawFrame(time);
 
+      const videoFrameStart = performance.now();
       const timestampUs = Math.round(time * 1_000_000);
       const durationUs = Math.round(FRAME_TIME * 1_000_000);
       const videoFrame = new VideoFrame(canvas, { 
         timestamp: timestampUs,
         duration: durationUs 
       });
+      const videoFrameMs = performance.now() - videoFrameStart;
 
-      videoEncoder.encode(videoFrame, { keyFrame: exportFrame % 30 === 0 });
+      const videoEncodeStart = performance.now();
+      videoEncoder.encode(videoFrame, { keyFrame: exportFrame % KEYFRAME_INTERVAL === 0 });
       videoFrame.close();
+      let videoEncodeMs = performance.now() - videoEncodeStart;
+      lastBackpressureMs = 0;
 
-      if (videoEncoder.encodeQueueSize > 90) {
-        if (encoderError) throw encoderError;
-        await videoEncoder.flush();
+      if (videoEncoder.encodeQueueSize > VIDEO_QUEUE_THROTTLE_LIMIT) {
+        const backpressureStart = performance.now();
+        let waitLoops = 0;
+        while (
+          !isAborted &&
+          !encoderError &&
+          videoEncoder.encodeQueueSize > VIDEO_QUEUE_THROTTLE_LIMIT
+        ) {
+          if (videoEncoder.encodeQueueSize > VIDEO_QUEUE_HARD_FLUSH_LIMIT) {
+            await videoEncoder.flush();
+          } else {
+            await sleep(4);
+          }
+          waitLoops++;
+          if (waitLoops % 12 === 0) {
+            await yieldToMain();
+          }
+        }
+        lastBackpressureMs = performance.now() - backpressureStart;
+        videoEncodeMs += lastBackpressureMs;
         if (encoderError) throw encoderError;
       }
 
+      const audioQueueStart = performance.now();
       const targetSampleOffset = Math.min(
         Math.floor((exportFrame + 1) * FRAME_TIME * sampleRate),
         leftChannel.length
@@ -327,7 +445,10 @@ self.onmessage = async (e: MessageEvent) => {
 
         audioSampleOffset += currentChunkSize;
       }
+      const audioQueueMs = performance.now() - audioQueueStart;
 
+      const audioEncodeStart = performance.now();
+      let audioChunksEncoded = 0;
       while (audioBufferQueueLeft.length >= AUDIO_FRAME_SIZE && !isAborted) {
         const leftSlice = audioBufferQueueLeft.subarray(0, AUDIO_FRAME_SIZE);
         const planarData = audioFrameBuffer;
@@ -351,21 +472,51 @@ self.onmessage = async (e: MessageEvent) => {
         audioEncoder.encode(audioData);
         audioData.close();
         audioFramesEncodedCount++;
+        audioChunksEncoded++;
 
         audioBufferQueueLeft = audioBufferQueueLeft.slice(AUDIO_FRAME_SIZE);
         if (numChannels > 1 && rightChannel) {
           audioBufferQueueRight = audioBufferQueueRight.slice(AUDIO_FRAME_SIZE);
         }
       }
+      const audioEncodeMs = performance.now() - audioEncodeStart;
 
       const now = performance.now();
+      if (now - lastPerfPostTime > 1000 || exportFrame === totalFrames - 1) {
+        postRenderLog('perf', 'Frame render profile', {
+          frame: exportFrame,
+          totalFrames,
+          time: Number(time.toFixed(2)),
+          totalMs: roundMs(renderMetrics.totalMs),
+          backgroundMs: roundMs(renderMetrics.bgMs),
+          particlesMs: roundMs(renderMetrics.particlesMs),
+          visualizerMs: roundMs(renderMetrics.visualizerMs),
+          lyricsMs: roundMs(renderMetrics.lyricsMs),
+          videoFrameMs: roundMs(videoFrameMs),
+          videoEncodeMs: roundMs(videoEncodeMs),
+          audioQueueMs: roundMs(audioQueueMs),
+          audioEncodeMs: roundMs(audioEncodeMs),
+          audioChunks: audioChunksEncoded,
+          loopMs: roundMs(performance.now() - loopStart),
+          lastYieldMs: roundMs(lastYieldMs),
+          backpressureMs: roundMs(lastBackpressureMs),
+          encodeQueue: videoEncoder?.encodeQueueSize ?? null,
+        });
+        lastPerfPostTime = now;
+      }
       if (now - lastProgressPostTime > 120 || exportFrame === totalFrames - 1) {
         self.postMessage({ type: 'progress', percent: exportFrame / totalFrames, seconds: time });
         lastProgressPostTime = now;
       }
       exportFrame++;
 
-      await yieldToMain();
+      if (exportFrame % YIELD_EVERY_FRAMES === 0) {
+        const yieldStart = performance.now();
+        await yieldToMain();
+        lastYieldMs = performance.now() - yieldStart;
+      } else {
+        lastYieldMs = 0;
+      }
     }
 
     if (isAborted) {
@@ -397,15 +548,22 @@ self.onmessage = async (e: MessageEvent) => {
       audioData.close();
     }
 
+    postRenderLog('mux', 'Flushing encoders');
     await videoEncoder.flush();
     await audioEncoder.flush();
 
     videoEncoder.close();
     audioEncoder.close();
 
+    postRenderLog('mux', 'Finalizing container');
     muxer.finalize();
 
     const finalBuffer = muxer.target.buffer;
+    postRenderLog('complete', 'Export buffer ready', {
+      bytes: finalBuffer.byteLength,
+      megabytes: Number((finalBuffer.byteLength / 1024 / 1024).toFixed(2)),
+      outputType,
+    });
     (self as any).postMessage({ type: 'complete', buffer: finalBuffer, outputType }, [finalBuffer]);
 
   } catch (error: any) {

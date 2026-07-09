@@ -28,6 +28,7 @@ interface ExportOptions {
   onProgress: (percent: number, secondsRecorded: number) => void;
   onStatus?: (status: 'decoding' | 'initializing' | 'prewarming' | 'encoding' | 'recording') => void;
   onWarning?: (message: string) => void;
+  onRenderLog?: (event: { tag: string; message: string; data?: Record<string, unknown> }) => void;
   onComplete: (blob: Blob) => void;
   onError: (error: Error) => void;
   quality?: 'low' | 'medium' | 'high' | 'ultra';
@@ -54,6 +55,10 @@ export function exportVideo(options: ExportOptions): void {
 
   if (!isWebCodecsSupported) {
     console.warn('Cinema Engine: WebCodecs not supported. Using real-time MediaRecorder.');
+    options.onRenderLog?.({
+      tag: 'fallback',
+      message: 'WebCodecs unavailable, MediaRecorder fallback selected',
+    });
     options.onWarning?.(
       options.language === 'ru'
         ? 'Ваш браузер не поддерживает офлайн-кодеки. Используется запись в реальном времени.'
@@ -208,10 +213,26 @@ async function exportVideoWebCodecs(
 
   // --- ШАГ 1: БЕЗОПАСНОЕ ДЕКОДИРОВАНИЕ АУДИО ---
   onStatus?.('decoding');
+  options.onRenderLog?.({
+    tag: 'decode',
+    message: 'Audio decode started',
+    data: {
+      source: audioElement.src?.startsWith('blob:') ? 'blob' : audioElement.src?.startsWith('data:') ? 'data' : 'url',
+    },
+  });
   let audioBuffer: AudioBuffer;
   try {
     const audioArrayBuffer = await getAudioBuffer(audioElement);
     audioBuffer = await decodeAudioSafely(audioArrayBuffer);
+    options.onRenderLog?.({
+      tag: 'decode',
+      message: 'Audio decoded',
+      data: {
+        duration: Number(audioBuffer.duration.toFixed(2)),
+        sampleRate: audioBuffer.sampleRate,
+        channels: audioBuffer.numberOfChannels,
+      },
+    });
   } catch (error: any) {
     throw new Error(`Audio decoding failed: ${error.message}`);
   }
@@ -223,10 +244,22 @@ async function exportVideoWebCodecs(
   // --- ШАГ 2: ПОДГОТОВКА ОБЛОЖКИ (ImageBitmap) ---
   let coverBitmap: ImageBitmap | null = null;
   if (coverUrl) {
+    options.onRenderLog?.({
+      tag: 'cover',
+      message: 'Cover preparation started',
+    });
     try {
       const response = await fetch(coverUrl);
       const blob = await response.blob();
       coverBitmap = await createImageBitmap(blob);
+      options.onRenderLog?.({
+        tag: 'cover',
+        message: 'Cover ImageBitmap ready',
+        data: {
+          width: coverBitmap.width,
+          height: coverBitmap.height,
+        },
+      });
     } catch {
       const img = new Image();
       await new Promise<void>((resolve) => {
@@ -243,8 +276,23 @@ async function exportVideoWebCodecs(
       if (img.complete && img.naturalWidth > 0) {
         try {
           coverBitmap = await createImageBitmap(img);
+          options.onRenderLog?.({
+            tag: 'cover',
+            message: 'Cover ImageBitmap ready via image fallback',
+            data: {
+              width: coverBitmap.width,
+              height: coverBitmap.height,
+            },
+          });
         } catch (e) {
           console.warn('Failed to create cover ImageBitmap:', e);
+          options.onRenderLog?.({
+            tag: 'cover',
+            message: 'Cover ImageBitmap failed',
+            data: {
+              error: e instanceof Error ? e.message : String(e),
+            },
+          });
         }
       }
     }
@@ -267,12 +315,14 @@ async function exportVideoWebCodecs(
   return new Promise<void>((resolve, reject) => {
     worker.onmessage = (e: MessageEvent) => {
       if (isAborted) return;
-      const { type, percent, seconds, buffer, outputType, message, level, status } = e.data;
+      const { type, percent, seconds, buffer, outputType, message, level, status, tag, data } = e.data;
       
       if (type === 'log') {
         if (level === 'info') console.log(`[Worker] ${message}`);
         else if (level === 'warn') console.warn(`[Worker] ${message}`);
         else if (level === 'error') console.error(`[Worker] ${message}`);
+      } else if (type === 'render-log') {
+        options.onRenderLog?.({ tag, message, data });
       } else if (type === 'progress') {
         onProgress(percent, seconds);
       } else if (type === 'status') {
@@ -308,6 +358,24 @@ async function exportVideoWebCodecs(
 
     const targetFps = options.fps || 30;
     const targetBitrate = options.bitrateKbps || (resolution === '720p' ? 3000 : 6000);
+    options.onRenderLog?.({
+      tag: 'worker',
+      message: 'Worker export requested',
+      data: {
+        resolution,
+        format,
+        quality: quality || 'default',
+        fps: targetFps,
+        bitrateKbps: targetBitrate,
+        preset: styleOptions.preset,
+        animationStyle: styleOptions.animationStyle,
+        fxOverlay: styleOptions.fxOverlay,
+        bgType: styleOptions.bgType,
+        hwAccel,
+        hasCover: !!coverBitmap,
+        lines: lines.length,
+      },
+    });
 
     worker.postMessage({
       action: 'start',

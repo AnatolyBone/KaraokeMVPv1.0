@@ -7,8 +7,8 @@ export class KineticTypographyStrategy implements AnimationStrategy {
     ctx: Canvas2DContext,
     frame: RenderFrame,
     fromLine: LyricLine | null,
-    toLine: LyricLine | null,
-    transitionProgress: number,
+    _toLine: LyricLine | null,
+    _transitionProgress: number,
     centerY: number,
     spacing: number,
     timedLines: LyricLine[],
@@ -16,23 +16,16 @@ export class KineticTypographyStrategy implements AnimationStrategy {
   ): void {
     const { width, styleOptions, coverColors, time } = frame;
     const centerX = width / 2;
+    const nextLine = activeIdx + 1 < timedLines.length ? timedLines[activeIdx + 1] : null;
+    const bandCenterY = centerY + spacing * 0.18;
+    const activeY = bandCenterY - spacing * 0.2;
+    const hintY = bandCenterY + spacing * 0.28;
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    if (activeIdx > 0) {
-      const prevLine = timedLines[activeIdx - 1];
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-      ctx.font = `${frame.resolution === '1080p' ? '34px' : '22px'} ${styleOptions.fontFamily}`;
-      ctx.fillText(prevLine.text, centerX, centerY - spacing - transitionProgress * spacing, width * 0.88);
-    }
-
-    if (toLine && activeIdx + 1 < timedLines.length) {
-      const nextLine = timedLines[activeIdx + 1];
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-      ctx.font = `${frame.resolution === '1080p' ? '34px' : '22px'} ${styleOptions.fontFamily}`;
-      ctx.fillText(nextLine.text, centerX, centerY + spacing - transitionProgress * spacing, width * 0.88);
-    }
+    this.renderReadingBand(ctx, frame, bandCenterY, spacing);
+    this.renderContextLine(ctx, frame, nextLine, centerX, hintY);
 
     if (fromLine) {
       // Автомасштабирование шрифта если текст шире 88% кадра
@@ -62,7 +55,7 @@ export class KineticTypographyStrategy implements AnimationStrategy {
       ctx.lineWidth = styleOptions.strokeWidth;
 
       const hasWordSync = fromLine.words && fromLine.words.some(w => w.time !== null);
-      const y = centerY - transitionProgress * spacing;
+      const y = activeY;
 
       if (hasWordSync) {
         const totalWidth = getCachedTextWidth(ctx, fromLine.text, activeFont);
@@ -84,7 +77,8 @@ export class KineticTypographyStrategy implements AnimationStrategy {
           // Пружинный отскок при активации слова
           let yOffset = 0;
           if (fillPercent > 0 && fillPercent < 1) {
-            yOffset = -Math.sin(fillPercent * Math.PI) * 12;
+            const bounce = frame.styleOptions.preset === 'tiktok-neon' ? 5 : 8;
+            yOffset = -Math.sin(fillPercent * Math.PI) * bounce;
           }
 
           ctx.fillStyle = styleOptions.inactiveWordColor;
@@ -125,5 +119,45 @@ export class KineticTypographyStrategy implements AnimationStrategy {
         ctx.fillText(fromLine.translation, centerX, y + (frame.resolution === '1080p' ? 50 : 32));
       }
     }
+  }
+
+  private renderReadingBand(ctx: Canvas2DContext, frame: RenderFrame, centerY: number, spacing: number) {
+    const { width } = frame;
+    const bandHeight = spacing * 1.48;
+    const y = centerY - bandHeight / 2;
+    const gradient = ctx.createLinearGradient(0, y, 0, y + bandHeight);
+
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    gradient.addColorStop(0.22, 'rgba(0, 0, 0, 0.2)');
+    gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.42)');
+    gradient.addColorStop(0.78, 'rgba(0, 0, 0, 0.2)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+    ctx.save();
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, y, width, bandHeight);
+
+    const centerGlow = ctx.createRadialGradient(width / 2, centerY, 0, width / 2, centerY, width * 0.46);
+    centerGlow.addColorStop(0, 'rgba(0, 0, 0, 0.24)');
+    centerGlow.addColorStop(0.54, 'rgba(0, 0, 0, 0.12)');
+    centerGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = centerGlow;
+    ctx.fillRect(0, y, width, bandHeight);
+
+    ctx.restore();
+  }
+
+  private renderContextLine(ctx: Canvas2DContext, frame: RenderFrame, line: LyricLine | null, centerX: number, y: number) {
+    if (!line) return;
+
+    const { width, styleOptions } = frame;
+
+    ctx.save();
+    ctx.globalAlpha = 0.58;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
+    ctx.shadowBlur = 0;
+    ctx.font = `${frame.resolution === '1080p' ? '42px' : '28px'} ${styleOptions.fontFamily}`;
+    ctx.fillText(line.text, centerX, y, width * 0.88);
+    ctx.restore();
   }
 }

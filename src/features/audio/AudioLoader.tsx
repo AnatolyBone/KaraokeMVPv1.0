@@ -32,6 +32,17 @@ function cleanAutoSearchPart(value: string): string {
     .trim();
 }
 
+async function blobUrlToBlob(url: string): Promise<Blob | null> {
+  if (!url.startsWith('blob:')) return null;
+  try {
+    const response = await fetch(url);
+    return await response.blob();
+  } catch (err) {
+    console.warn('Failed to read blob URL:', err);
+    return null;
+  }
+}
+
 function splitAutoSearchParts(value: string): string[] {
   return cleanAutoSearchPart(value)
     .split(/\s*[-—–]\s*/)
@@ -323,6 +334,10 @@ export const AudioLoader: React.FC = () => {
       const cover = await extractCoverFromAudio(file);
       if (cover) {
         setCover(cover);
+        const coverBlob = await blobUrlToBlob(cover);
+        if (coverBlob) {
+          await saveCoverToDB(coverBlob);
+        }
         const palette = await extractDominantColors(cover);
         setCoverColors(palette);
       } else {

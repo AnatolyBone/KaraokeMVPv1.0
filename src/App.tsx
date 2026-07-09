@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useKaraokeStore } from './store/useKaraokeStore';
 import { audioRef, seekAudio, toggleAudioPlay } from './audioRef';
 import { AudioLoader } from './features/audio/AudioLoader';
@@ -12,11 +12,18 @@ import { SidePanel } from './components/SidePanel';
 import { TimelineEditor } from './components/TimelineEditor';
 import { AuthSection } from './components/AuthSection';
 import { localization } from './utils/localization';
-import { Sun, Moon, Type, Clock, Edit3, Zap, Settings, Shield, HelpCircle, ChevronLeft } from 'lucide-react';
+import { Sun, Moon, Type, Clock, Edit3, Zap, Settings, Shield, HelpCircle, ChevronLeft, Library } from 'lucide-react';
 import { supabase } from './services/supabaseClient';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { InteractiveTour } from './components/InteractiveTour';
 import { KaraokeCatalog } from './components/KaraokeCatalog';
+import { PublicKaraokePage } from './components/PublicKaraokePage';
+import { trackAppEvent } from './utils/analytics';
+
+const getPublicKaraokeIdFromPath = () => {
+  const match = window.location.pathname.match(/^\/karaoke\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+};
 
 const App: React.FC = () => {
   const {
@@ -39,6 +46,9 @@ const App: React.FC = () => {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [tourActive, setTourActive] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
+  const [publicKaraokeId, setPublicKaraokeId] = useState<string | null>(() => getPublicKaraokeIdFromPath());
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const lastTrackedScreenRef = useRef<string | null>(null);
 
   const dict = localization[language];
 
@@ -53,6 +63,46 @@ const App: React.FC = () => {
       root.style.colorScheme = 'light';
     }
   }, [theme]);
+
+  useEffect(() => {
+    trackAppEvent({
+      eventName: 'app_open',
+      userId: user?.id,
+      telegramId: userProfile?.telegram_id,
+      appMode,
+      metadata: {
+        language,
+        theme,
+        publicKaraokeId,
+      },
+    });
+  }, []);
+
+  useEffect(() => {
+    const screen = publicKaraokeId ? 'public_karaoke' : catalogOpen ? 'catalog' : `${appMode}:${step}`;
+    if (lastTrackedScreenRef.current === screen) return;
+
+    lastTrackedScreenRef.current = screen;
+    trackAppEvent({
+      eventName: 'screen_view',
+      userId: user?.id,
+      telegramId: userProfile?.telegram_id,
+      appMode,
+      metadata: {
+        screen,
+        step,
+        catalogOpen,
+        publicKaraokeId,
+      },
+    });
+  }, [appMode, catalogOpen, publicKaraokeId, step, user?.id, userProfile?.telegram_id]);
+
+  useEffect(() => {
+    const shouldOpenAdmin = new URLSearchParams(window.location.search).get('admin') === '1';
+    if (shouldOpenAdmin && userProfile?.role === 'admin') {
+      setIsAdminOpen(true);
+    }
+  }, [userProfile?.role]);
 
   // Listen to Supabase Auth Changes
   useEffect(() => {
@@ -109,6 +159,32 @@ const App: React.FC = () => {
     const timer = window.setTimeout(() => setShowIntro(false), 2600);
     return () => window.clearTimeout(timer);
   }, [showIntro]);
+
+  useEffect(() => {
+    const handleRouteChange = () => {
+      setPublicKaraokeId(getPublicKaraokeIdFromPath());
+    };
+
+    window.addEventListener('popstate', handleRouteChange);
+    window.addEventListener('karaoke-route-change', handleRouteChange);
+    return () => {
+      window.removeEventListener('popstate', handleRouteChange);
+      window.removeEventListener('karaoke-route-change', handleRouteChange);
+    };
+  }, []);
+
+  const goToAppHome = () => {
+    window.history.pushState({}, '', '/');
+    setPublicKaraokeId(null);
+    setCatalogOpen(false);
+  };
+
+  const openPublishPanel = () => {
+    setCatalogOpen(false);
+    setPublicKaraokeId(null);
+    setAppMode('editor');
+    setStep('edit');
+  };
 
   const rawText = useKaraokeStore((state) => state.rawText);
 
@@ -404,6 +480,22 @@ const App: React.FC = () => {
               </button>
             </div>
 
+            <button
+              onClick={() => {
+                setCatalogOpen(true);
+                setPublicKaraokeId(null);
+              }}
+              className={`hidden sm:flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-[10px] font-extrabold transition-all duration-300 hover:scale-[1.02] ${
+                catalogOpen
+                  ? headerSegmentActiveClass
+                  : headerSegmentInactiveClass
+              } ${headerSegmentClass}`}
+              title={language === 'ru' ? 'Открыть каталог караоке' : 'Open karaoke catalog'}
+            >
+              <Library size={14} />
+              {language === 'ru' ? 'Каталог' : 'Catalog'}
+            </button>
+
             {/* Language Switcher */}
             <div className={`flex items-center gap-1 border p-1 rounded-xl shrink-0 backdrop-blur-md shadow-sm ${headerSegmentClass}`}>
               <button
@@ -519,10 +611,32 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Main Content Section */}
+      {publicKaraokeId ? (
+        <PublicKaraokePage karaokeId={publicKaraokeId} onBackToApp={goToAppHome} />
+      ) : (
+      /* Main Content Section */
       <main className="relative z-10 flex-1 max-w-6xl w-full mx-auto px-4 py-6 flex flex-col lg:flex-row gap-6 items-start">
         <div className="flex-1 w-full flex flex-col gap-6">
           
+          {catalogOpen ? (
+            <div className="flex flex-col gap-4">
+              <div className="flex justify-start">
+                <button
+                  onClick={() => setCatalogOpen(false)}
+                  className={`px-3.5 py-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] ${
+                    theme === 'dark'
+                      ? 'bg-zinc-950/60 border-zinc-800 text-zinc-300 hover:bg-zinc-950 hover:text-zinc-100 hover:border-zinc-700'
+                      : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 hover:border-zinc-300'
+                  }`}
+                >
+                  <ChevronLeft size={14} />
+                  {language === 'ru' ? 'Назад к проекту' : 'Back to project'}
+                </button>
+              </div>
+              <KaraokeCatalog onTrackLoaded={() => setCatalogOpen(false)} onRequestPublish={openPublishPanel} />
+            </div>
+          ) : (
+          <>
           {/* Audio Loader is shown on all steps */}
           <AudioLoader />
 
@@ -558,7 +672,7 @@ const App: React.FC = () => {
                   <KaraokePreview />
                 </div>
               ) : (
-                <KaraokeCatalog />
+                <KaraokeCatalog onRequestPublish={openPublishPanel} />
               )}
             </div>
           ) : (
@@ -626,11 +740,14 @@ const App: React.FC = () => {
               )}
             </>
           )}
+          </>
+          )}
         </div>
 
         {/* Right Column Sidebar */}
         <SidePanel />
       </main>
+      )}
 
       {/* Footer */}
       <footer className={`relative z-10 py-4 text-center text-[11px] border-t transition-colors ${

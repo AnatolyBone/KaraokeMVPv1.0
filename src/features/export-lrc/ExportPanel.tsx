@@ -4,7 +4,7 @@ import { generateLRC } from '../../utils/lrc';
 import { generateSRT, generateASS, generateVTT } from '../../utils/subtitleFormats';
 import { FileDown, Copy, Check, AlertTriangle, Layers, Database, Upload, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { localization } from '../../utils/localization';
-import { loadAudioFromDB, loadCoverFromDB } from '../../utils/db';
+import { loadAudioFromDB, loadCoverFromDB, loadProjectAudioFromDB, loadProjectCoverFromDB } from '../../utils/db';
 import { AuthSection } from '../../components/AuthSection';
 import { supabase } from '../../services/supabaseClient';
 
@@ -25,6 +25,7 @@ export const ExportPanel: React.FC = () => {
     trackMetadata,
     dailyPublishLimitFree,
     dailyPublishLimitPro,
+    currentProjectId,
   } = useKaraokeStore();
   const [format, setFormat] = useState<ExportFormat>('lrc');
   const dict = localization[language];
@@ -66,11 +67,11 @@ export const ExportPanel: React.FC = () => {
   useEffect(() => {
     const checkDBFiles = async () => {
       try {
-        const audioFile = await loadAudioFromDB();
+        const audioFile = await loadAudioFromDB() || (currentProjectId ? await loadProjectAudioFromDB(currentProjectId) : null);
         setHasLocalAudio(!!audioFile);
         setUploadAudio(!!audioFile);
 
-        const coverFile = await loadCoverFromDB();
+        const coverFile = await loadCoverFromDB() || (currentProjectId ? await loadProjectCoverFromDB(currentProjectId) : null);
         setHasLocalCover(!!coverFile);
         setUploadCover(!!coverFile);
       } catch (err) {
@@ -78,7 +79,7 @@ export const ExportPanel: React.FC = () => {
       }
     };
     checkDBFiles();
-  }, []);
+  }, [currentProjectId]);
 
   const handlePublish = async () => {
     if (!artist.trim() || !title.trim()) {
@@ -121,8 +122,12 @@ export const ExportPanel: React.FC = () => {
         }
       }
 
-      const audioFile = uploadAudio ? await loadAudioFromDB() : undefined;
-      const coverFile = uploadCover ? await loadCoverFromDB() : undefined;
+      const audioFile = uploadAudio
+        ? await loadAudioFromDB() || (currentProjectId ? await loadProjectAudioFromDB(currentProjectId) : null)
+        : undefined;
+      const coverFile = uploadCover
+        ? await loadCoverFromDB() || (currentProjectId ? await loadProjectCoverFromDB(currentProjectId) : null)
+        : undefined;
 
       const res = await publishKaraokeTrack({
         artist: artist.trim(),

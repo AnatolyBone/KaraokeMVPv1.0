@@ -7,7 +7,9 @@ import { clearTextWidthCache } from '../../utils/renderer/textCache';
 import { renderBackground } from '../../utils/renderer/renderBackground';
 import { RenderFrame } from '../../utils/renderer/types';
 import { extractDominantColors } from '../../utils/colors';
-import { FileVideo, Download, AlertCircle, RefreshCw, XCircle, CheckCircle2, Palette, Type, Eye, Film, Activity, ShieldAlert, LayoutGrid, SlidersHorizontal } from 'lucide-react';
+import { FileVideo, Download, AlertCircle, RefreshCw, XCircle, CheckCircle2, Palette, Type, Eye, Film, Activity, ShieldAlert, LayoutGrid, SlidersHorizontal, Copy } from 'lucide-react';
+
+const MODERN_VIDEO_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
 
 interface PreviewParticle {
   x: number;
@@ -26,8 +28,15 @@ interface PreviewParticle {
 }
 
 type QualityPreset = 'low' | 'medium' | 'high' | 'ultra';
-type ExportProfile = 'stable' | 'balanced' | 'premium';
+type ExportProfile = 'stable' | 'balanced' | 'sharp' | 'premium';
 type ExportProfileState = ExportProfile | 'custom';
+type RenderLogEntry = {
+  id: number;
+  time: string;
+  tag: string;
+  message: string;
+  data?: Record<string, unknown>;
+};
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -67,6 +76,10 @@ export const ExportVideoPanel: React.FC = () => {
   type ExportPhase = 'idle' | 'decoding' | 'initializing' | 'prewarming' | 'encoding' | 'recording';
   const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const [renderLogs, setRenderLogs] = useState<RenderLogEntry[]>([]);
+  const [logsCopied, setLogsCopied] = useState(false);
+  const renderLogIdRef = useRef(0);
+  const codecPressureHitsRef = useRef(0);
 
   const dict = localization[language];
   const exportUi = {
@@ -87,8 +100,8 @@ export const ExportVideoPanel: React.FC = () => {
       : 'Heads up: 1080p export in Maximum mode is CPU-heavy. On weaker devices, Standard mode is recommended.',
     presets: {
       apple: language === 'ru' ? 'Apple Music Style (Кураторский)' : 'Apple Music Style (Curated)',
-      spotify: language === 'ru' ? 'Spotify Premium (Сочный зеленый)' : 'Spotify Premium (Rich green)',
-      tiktok: language === 'ru' ? 'TikTok Neon (Неоновый молодежный)' : 'TikTok Neon (High-energy neon)',
+      spotify: language === 'ru' ? 'Spotify Stage (Глубокий зеленый)' : 'Spotify Stage (Deep green)',
+      tiktok: language === 'ru' ? 'TikTok Pulse (Контрастный клип)' : 'TikTok Pulse (High-contrast clip)',
       classic: language === 'ru' ? 'Classic Karaoke (Сине-желтый)' : 'Classic Karaoke (Blue and yellow)',
       cinema: language === 'ru' ? 'Minimal Cinema (Темный кинотеатр)' : 'Minimal Cinema (Dark cinema)',
     },
@@ -111,10 +124,12 @@ export const ExportVideoPanel: React.FC = () => {
     bitrate: {
       small: language === 'ru' ? 'маленький файл' : 'small file',
       normal: language === 'ru' ? 'обычное качество' : 'normal quality',
+      sharp: language === 'ru' ? 'четкий 1080p' : 'crisp 1080p',
       hd: language === 'ru' ? 'четкое HD' : 'crisp HD',
       max: language === 'ru' ? 'максимум 1080p' : 'maximum 1080p',
     },
     font: {
+      modern: language === 'ru' ? 'Современный' : 'Modern',
       sans: language === 'ru' ? 'Без засечек' : 'Sans serif',
       serif: language === 'ru' ? 'С засечками' : 'Serif',
       mono: language === 'ru' ? 'Моноширинный' : 'Monospace',
@@ -144,6 +159,13 @@ export const ExportVideoPanel: React.FC = () => {
         desc: language === 'ru'
           ? 'Лучший вариант по умолчанию: нормальное качество, хорошая плавность, без лишней нагрузки.'
           : 'Best default option: good quality, smooth enough, no excessive load.',
+      },
+      sharp: {
+        title: language === 'ru' ? 'Четкий 1080p' : 'Crisp 1080p',
+        meta: language === 'ru' ? '1080p · 30 FPS · 4.5 Mbps' : '1080p · 30 FPS · 4.5 Mbps',
+        desc: language === 'ru'
+          ? 'Для четкого текста, обложки и Full HD без жидких сфер и лишней нагрузки.'
+          : 'For crisp text, cover art, and Full HD without liquid spheres or heavy render load.',
       },
       premium: {
         title: language === 'ru' ? 'Максимум' : 'Premium',
@@ -193,12 +215,52 @@ export const ExportVideoPanel: React.FC = () => {
     exportSpeedFps > 0 &&
     exportSpeedFps < Math.max(8, exportFps * 0.4);
 
+  const formatRenderLogData = (data?: Record<string, unknown>) => {
+    if (!data) return '';
+    return Object.entries(data)
+      .map(([key, value]) => `${key}: ${typeof value === 'number' ? Number(value.toFixed(2)) : String(value)}`)
+      .join(' | ');
+  };
+
+  const copyRenderLogs = async () => {
+    if (renderLogs.length === 0) return;
+
+    const text = renderLogs
+      .slice()
+      .sort((a, b) => a.id - b.id)
+      .map((log) => {
+        const data = formatRenderLogData(log.data);
+        return `${log.time} [${log.tag}] ${log.message}${data ? `\n${data}` : ''}`;
+      })
+      .join('\n\n');
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setLogsCopied(true);
+      window.setTimeout(() => setLogsCopied(false), 1600);
+    } catch (err) {
+      console.warn('Failed to copy render logs', err);
+    }
+  };
+
   useEffect(() => {
     let defaultBitrate = 3000;
     if (resolution === '1080p') {
       if (quality === 'low') defaultBitrate = 2500;
       else if (quality === 'medium') defaultBitrate = 4500;
-      else if (quality === 'high') defaultBitrate = 6000;
+      else if (quality === 'high') defaultBitrate = 4500;
       else if (quality === 'ultra') defaultBitrate = 12000;
     } else {
       if (quality === 'low') defaultBitrate = 1500;
@@ -229,6 +291,16 @@ export const ExportVideoPanel: React.FC = () => {
       setCustomBitrate(4000);
       setVideoFormat(isMp4Supported ? 'mp4' : 'webm');
       updateVideoStyle({ fxOverlay: 'fluid-gradient' });
+      return;
+    }
+
+    if (profile === 'sharp') {
+      setResolution('1080p');
+      setQuality('high');
+      setExportFps(30);
+      setCustomBitrate(4500);
+      setVideoFormat(isMp4Supported ? 'mp4' : 'webm');
+      updateVideoStyle({ fxOverlay: 'none' });
       return;
     }
 
@@ -314,6 +386,36 @@ export const ExportVideoPanel: React.FC = () => {
   useEffect(() => {
     clearTextWidthCache();
   }, [videoStyle.preset, videoStyle.bgType, videoStyle.gradientPreset, quality]);
+
+  // Старые сохранённые настройки могли показывать Apple-style в селекте,
+  // но внутри держать прежний layout/background. Нормализуем прямо при входе в экспорт.
+  useEffect(() => {
+    if (
+      videoStyle.preset === 'apple-music' &&
+      (
+        videoStyle.bgType !== 'gradient' ||
+        videoStyle.gradientPreset !== 'ocean' ||
+        videoStyle.animationStyle !== 'split-screen'
+      )
+    ) {
+      updateVideoStyle({
+        bgType: 'gradient',
+        gradientPreset: 'ocean',
+        animationStyle: 'split-screen',
+        glowSize: 0,
+        visualizerType: 'none',
+        activeWordColor: '#ffffff',
+        inactiveWordColor: 'rgba(255,255,255,0.35)',
+      });
+    }
+  }, [
+    videoStyle.preset,
+    videoStyle.bgType,
+    videoStyle.gradientPreset,
+    videoStyle.animationStyle,
+    videoStyle.fxOverlay,
+    updateVideoStyle,
+  ]);
 
   // Автоматически извлекаем цвета обложки при открытии панели экспорта,
   // если coverUrl есть, а coverColors ещё не вычислены (например после перезагрузки страницы)
@@ -587,7 +689,10 @@ export const ExportVideoPanel: React.FC = () => {
       const lyricsStart = performance.now();
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `bold ${videoStyle.fontSize}px ${videoStyle.fontFamily}`;
+      const isSoftSplitPreset = videoStyle.preset === 'apple-music' || videoStyle.preset === 'minimal-cinema';
+      const previewFontFamily = isSoftSplitPreset ? MODERN_VIDEO_FONT : videoStyle.fontFamily;
+      const previewMainWeight = isSoftSplitPreset ? 600 : 'bold';
+      ctx.font = `${previewMainWeight} ${videoStyle.fontSize}px ${previewFontFamily}`;
 
       let glowSize = videoStyle.glowSize;
       if (quality === 'low') {
@@ -605,6 +710,8 @@ export const ExportVideoPanel: React.FC = () => {
 
       ctx.strokeStyle = videoStyle.strokeColor;
       ctx.lineWidth = videoStyle.strokeWidth;
+      const previewActiveColor = videoStyle.preset === 'spotify' ? '#f8fff8' : videoStyle.activeWordColor;
+      const previewInactiveColor = videoStyle.preset === 'spotify' ? 'rgba(255,255,255,0.64)' : videoStyle.inactiveWordColor;
 
       if (videoStyle.animationStyle === 'split-screen') {
         // Рендерим левую часть обложки
@@ -666,11 +773,11 @@ export const ExportVideoPanel: React.FC = () => {
         const offsetBar = (isVertical || isSquare) ? 22 : 35;
         
         ctx.fillStyle = '#ffffff';
-        ctx.font = `bold ${titleFontSize}px ${videoStyle.fontFamily}`;
+        ctx.font = `700 ${titleFontSize}px ${previewFontFamily}`;
         ctx.fillText(title, textX, textY, leftRect.w * 0.88);
         
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.font = `${artistFontSize}px ${videoStyle.fontFamily}`;
+        ctx.font = `500 ${artistFontSize}px ${previewFontFamily}`;
         ctx.fillText(artist, textX, textY + offsetArtist, leftRect.w * 0.88);
 
         // Прогресс
@@ -717,8 +824,8 @@ export const ExportVideoPanel: React.FC = () => {
           ctx.scale(scale, scale);
           
           ctx.globalAlpha = isPrimary ? 1 : 0.4;
-          ctx.font = `bold ${videoStyle.fontSize}px ${videoStyle.fontFamily}`;
-          ctx.fillStyle = isPrimary ? videoStyle.activeWordColor : videoStyle.inactiveWordColor;
+          ctx.font = `${previewMainWeight} ${videoStyle.fontSize}px ${previewFontFamily}`;
+          ctx.fillStyle = isPrimary ? previewActiveColor : previewInactiveColor;
           ctx.fillText(txt, 0, 0);
           ctx.restore();
         });
@@ -750,7 +857,7 @@ export const ExportVideoPanel: React.FC = () => {
 
           ctx.save();
           ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-          ctx.font = `13px ${videoStyle.fontFamily}`;
+          ctx.font = `500 13px ${previewFontFamily}`;
           ctx.textAlign = 'left';
           ctx.textBaseline = 'top';
           ctx.fillText(curTimeStr, barX, barY + 10);
@@ -770,11 +877,12 @@ export const ExportVideoPanel: React.FC = () => {
 
         let yOffset = 0;
         if (videoStyle.animationStyle === 'kinetic') {
-          yOffset = -Math.abs(Math.sin(Date.now() * 0.003)) * 12;
+          const previewBounce = videoStyle.preset === 'tiktok-neon' ? 5 : 8;
+          yOffset = -Math.abs(Math.sin(Date.now() * 0.003)) * previewBounce;
         }
 
         const width1 = ctx.measureText(sampleText1).width;
-        ctx.fillStyle = videoStyle.activeWordColor;
+        ctx.fillStyle = previewActiveColor;
         ctx.fillText(sampleText1, startX + width1 / 2, textY + yOffset);
         if (videoStyle.strokeWidth > 0) {
           ctx.strokeText(sampleText1, startX + width1 / 2, textY + yOffset);
@@ -782,7 +890,7 @@ export const ExportVideoPanel: React.FC = () => {
         startX += width1;
 
         const width2 = ctx.measureText(sampleText2).width;
-        ctx.fillStyle = videoStyle.inactiveWordColor;
+        ctx.fillStyle = previewInactiveColor;
         ctx.fillText(sampleText2, startX + width2 / 2, textY);
         if (videoStyle.strokeWidth > 0) {
           ctx.strokeText(sampleText2, startX + width2 / 2, textY);
@@ -793,7 +901,7 @@ export const ExportVideoPanel: React.FC = () => {
         const fillFactor = (Math.sin(Date.now() * 0.002) + 1) / 2;
         ctx.rect(startX, textY - videoStyle.fontSize, width2 * fillFactor, videoStyle.fontSize * 2);
         ctx.clip();
-        ctx.fillStyle = videoStyle.activeWordColor;
+        ctx.fillStyle = previewActiveColor;
         ctx.fillText(sampleText2, startX + width2 / 2, textY);
         if (videoStyle.strokeWidth > 0) {
           ctx.strokeText(sampleText2, startX + width2 / 2, textY);
@@ -802,7 +910,7 @@ export const ExportVideoPanel: React.FC = () => {
         startX += width2;
 
         const width3 = ctx.measureText(sampleText3).width;
-        ctx.fillStyle = videoStyle.inactiveWordColor;
+        ctx.fillStyle = previewInactiveColor;
         ctx.fillText(sampleText3, startX + width3 / 2, textY);
         if (videoStyle.strokeWidth > 0) {
           ctx.strokeText(sampleText3, startX + width3 / 2, textY);
@@ -881,6 +989,9 @@ export const ExportVideoPanel: React.FC = () => {
     setExportSpeedFps(0);
     setExportPhase('initializing');
     setWarningMessage(null);
+    setRenderLogs([]);
+    renderLogIdRef.current = 0;
+    codecPressureHitsRef.current = 0;
     exportStartTimeRef.current = performance.now();
     lastProgressUiUpdateRef.current = 0;
 
@@ -921,6 +1032,38 @@ export const ExportVideoPanel: React.FC = () => {
         },
         onWarning: (msg) => {
           setWarningMessage(msg);
+        },
+        onRenderLog: (event) => {
+          const entry: RenderLogEntry = {
+            id: ++renderLogIdRef.current,
+            time: new Date().toLocaleTimeString(),
+            ...event,
+          };
+          if (event.tag === 'perf' && event.data) {
+            const videoEncodeMs = typeof event.data.videoEncodeMs === 'number' ? event.data.videoEncodeMs : 0;
+            const backpressureMs = typeof event.data.backpressureMs === 'number' ? event.data.backpressureMs : 0;
+            if (Math.max(videoEncodeMs, backpressureMs) > 2500) {
+              codecPressureHitsRef.current += 1;
+              if (codecPressureHitsRef.current === 2) {
+                setWarningMessage(language === 'ru'
+                  ? 'Похоже, упираемся не в анимации, а в браузерный H.264-кодек. Если экспорт сильно тормозит, попробуйте 720p, меньший битрейт или профиль «Надежный».'
+                  : 'Looks like the browser H.264 encoder is the bottleneck, not the animation. If export is slow, try 720p, a lower bitrate, or the Reliable profile.'
+                );
+              }
+            }
+          }
+          console.log('[Render]', event.tag, event.message, event.data || {});
+          setRenderLogs((prev) => {
+            const next = [entry, ...prev];
+            const pinnedTags = new Set(['worker', 'config', 'codec']);
+            const pinned = next
+              .filter((log) => pinnedTags.has(log.tag))
+              .filter((log, index, logs) => logs.findIndex((item) => item.tag === log.tag && item.message === log.message) === index);
+            const recent = next
+              .filter((log) => !pinnedTags.has(log.tag))
+              .slice(0, 24);
+            return [...pinned, ...recent].slice(0, 32);
+          });
         },
         onProgress: (percent, seconds) => {
           const now = performance.now();
@@ -1086,8 +1229,8 @@ export const ExportVideoPanel: React.FC = () => {
               <SlidersHorizontal size={14} className="text-violet-500" /> {exportUi.profilesTitle}
             </h4>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {(['stable', 'balanced', 'premium'] as ExportProfile[]).map((profile) => {
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              {(['stable', 'balanced', 'sharp', 'premium'] as ExportProfile[]).map((profile) => {
                 const profileInfo = exportUi.profiles[profile];
                 const isActive = selectedProfile === profile;
                 const isRecommended = recommendedProfile === profile;
@@ -1213,6 +1356,25 @@ export const ExportVideoPanel: React.FC = () => {
                 </select>
               </div>
 
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-zinc-400">
+                  {language === 'ru' ? 'Эффекты фона' : 'Background effects'}
+                </label>
+                <select
+                  value={videoStyle.fxOverlay}
+                  onChange={(e) => {
+                    markCustomProfile();
+                    updateVideoStyle({ fxOverlay: e.target.value as any });
+                  }}
+                  className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-900 border-zinc-800 text-zinc-300`}
+                >
+                  <option value="none">{language === 'ru' ? 'Без эффектов' : 'No effects'}</option>
+                  <option value="lens-dust">{language === 'ru' ? 'Кинопыль' : 'Cinematic dust'}</option>
+                  <option value="snow">{language === 'ru' ? 'Снег / частицы' : 'Snow / particles'}</option>
+                  <option value="fluid-gradient">{language === 'ru' ? 'Жидкий градиент' : 'Liquid gradient'}</option>
+                </select>
+              </div>
+
               {/* Aspect Ratio Selection */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-zinc-400">{exportUi.publishTarget}</label>
@@ -1275,6 +1437,7 @@ export const ExportVideoPanel: React.FC = () => {
                     >
                       <option value={1500}>{exportUi.bitrate.small}</option>
                       <option value={3000}>{exportUi.bitrate.normal}</option>
+                      <option value={4500}>{exportUi.bitrate.sharp}</option>
                       <option value={6000}>{exportUi.bitrate.hd}</option>
                       <option value={12000}>{exportUi.bitrate.max}</option>
                     </select>
@@ -1293,6 +1456,7 @@ export const ExportVideoPanel: React.FC = () => {
                       }}
                       className={`p-2.5 rounded-xl text-xs border focus:outline-none transition-all bg-zinc-950 border-zinc-800 text-zinc-300`}
                     >
+                      <option value={MODERN_VIDEO_FONT}>{exportUi.font.modern}</option>
                       <option value="sans-serif">{exportUi.font.sans}</option>
                       <option value="serif">{exportUi.font.serif}</option>
                       <option value="monospace">{exportUi.font.mono}</option>
@@ -1509,6 +1673,62 @@ export const ExportVideoPanel: React.FC = () => {
               />
             </div>
           </div>
+
+          {renderLogs.length > 0 && (
+            <div
+              className={`rounded-xl border p-3 text-[10px] ${
+                theme === 'dark'
+                  ? 'border-zinc-800 bg-zinc-950/80 text-zinc-300'
+                  : 'border-zinc-200 bg-zinc-50/85 text-zinc-600'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-bold uppercase tracking-wider text-zinc-400">
+                  {language === 'ru' ? 'Логи рендера' : 'Render logs'}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={copyRenderLogs}
+                    className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-semibold transition-all ${
+                      theme === 'dark'
+                        ? 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-violet-500 hover:text-violet-300'
+                        : 'border-zinc-200 bg-white text-zinc-600 hover:border-violet-300 hover:text-violet-600'
+                    }`}
+                  >
+                    {logsCopied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+                    {logsCopied
+                      ? language === 'ru' ? 'Скопировано' : 'Copied'
+                      : language === 'ru' ? 'Скопировать' : 'Copy'}
+                  </button>
+                  <span className="font-mono text-zinc-400">
+                    {renderLogs.length}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1 font-mono">
+                {renderLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className={`rounded-lg px-2 py-1.5 ${
+                      theme === 'dark' ? 'bg-white/[0.03]' : 'bg-white/80'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-zinc-400">{log.time}</span>
+                      <span className="font-bold text-violet-500">[{log.tag}]</span>
+                      <span>{log.message}</span>
+                    </div>
+                    {log.data && (
+                      <div className="mt-1 break-words text-zinc-400">
+                        {formatRenderLogData(log.data)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <button
             onClick={cancelExport}
