@@ -221,9 +221,19 @@ async function countDistinctVisitors(supabaseAdmin: any, sinceIso: string) {
       return null;
     }
 
+    const anonymousToKnownUser = new Map<string, string>();
+    (data || []).forEach((row: any) => {
+      const knownId = row.user_id || (row.telegram_id ? `tg:${row.telegram_id}` : null);
+      if (knownId && row.anonymous_id) {
+        anonymousToKnownUser.set(row.anonymous_id, knownId);
+      }
+    });
+
     const unique = new Set<string>();
     (data || []).forEach((row: any) => {
-      const id = row.user_id || (row.telegram_id ? `tg:${row.telegram_id}` : null) || (row.anonymous_id ? `anon:${row.anonymous_id}` : null);
+      const knownId = row.user_id || (row.telegram_id ? `tg:${row.telegram_id}` : null);
+      const resolvedAnonymousId = row.anonymous_id ? anonymousToKnownUser.get(row.anonymous_id) : null;
+      const id = knownId || resolvedAnonymousId || (row.anonymous_id ? `anon:${row.anonymous_id}` : null);
       if (id) unique.add(id);
     });
     return unique.size;
