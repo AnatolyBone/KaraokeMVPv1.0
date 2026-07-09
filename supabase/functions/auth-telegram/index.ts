@@ -335,6 +335,83 @@ async function buildAdminStatsMessage(supabaseAdmin: any) {
     `🔗 *Админка*: ${APP_URL}admin`;
 }
 
+async function trackPublicKaraokeOpen(supabaseAdmin: any, body: any, req: Request) {
+  const karaokeId = body.karaokeId || body.karaoke_id;
+  if (!karaokeId) {
+    return new Response(JSON.stringify({ error: 'Missing karaokeId' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const { data: publication, error: loadError } = await supabaseAdmin
+    .from('published_karaoke')
+    .select('id, plays_count, songs (artist, title)')
+    .eq('id', karaokeId)
+    .maybeSingle();
+
+  if (loadError) {
+    console.error('Failed to load public karaoke for view tracking:', loadError);
+    return new Response(JSON.stringify({ error: loadError.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (!publication) {
+    return new Response(JSON.stringify({ error: 'Karaoke not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const nextPlayCount = Number(publication.plays_count || 0) + 1;
+  const { error: updateError } = await supabaseAdmin
+    .from('published_karaoke')
+    .update({
+      plays_count: nextPlayCount,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', karaokeId);
+
+  if (updateError) {
+    console.error('Failed to increment public karaoke plays:', updateError);
+    return new Response(JSON.stringify({ error: updateError.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const route = body.route || req.headers.get('referer') || `/karaoke/${karaokeId}`;
+  const userAgent = req.headers.get('user-agent') || null;
+
+  try {
+    await supabaseAdmin.from('app_events').insert({
+      event_name: 'public_karaoke_opened',
+      user_id: body.userId || body.user_id || null,
+      telegram_id: body.telegramId || body.telegram_id || null,
+      anonymous_id: body.anonymousId || body.anonymous_id || null,
+      route,
+      app_mode: 'karaoke',
+      source: 'web',
+      metadata: {
+        screen: 'public_karaoke',
+        karaokeId,
+        artist: publication.songs?.artist || null,
+        title: publication.songs?.title || null,
+        userAgent,
+      },
+    });
+  } catch (eventError) {
+    console.warn('Failed to insert public karaoke analytics event:', eventError);
+  }
+
+  return new Response(JSON.stringify({ success: true, plays_count: nextPlayCount }), {
+    status: 200,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 
 // Автоматическая конфигурация бота (кнопка меню, команды, описание)
 async function configureBot(botToken: string) {
@@ -992,6 +1069,10 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
+    }
+
+    if (action === 'track-public-open') {
+      return await trackPublicKaraokeOpen(supabaseAdmin, body, req);
     }
 
     if (action === 'download-audio') {

@@ -1,6 +1,7 @@
 import { supabase } from '../services/supabaseClient';
 import { getStoragePublicUrl } from '../services/supabaseLyricsService';
 import { useKaraokeStore } from '../store/useKaraokeStore';
+import { getAnonymousId } from './analytics';
 import { extractDominantColors } from './colors';
 
 export interface PublishedKaraokeTrack {
@@ -68,6 +69,30 @@ export async function fetchPublishedKaraokeById(id: string): Promise<PublishedKa
   }
 
   return data as PublishedKaraokeTrack | null;
+}
+
+export async function trackPublishedKaraokeOpen(track: PublishedKaraokeTrack) {
+  try {
+    const store = useKaraokeStore.getState();
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-telegram`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'track-public-open',
+        karaokeId: track.id,
+        userId: store.user?.id || null,
+        telegramId: store.userProfile?.telegram_id || null,
+        anonymousId: getAnonymousId(),
+        route: `${window.location.pathname}${window.location.search}`,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn('Failed to track public karaoke open:', await response.text());
+    }
+  } catch (err) {
+    console.warn('Failed to track public karaoke open:', err);
+  }
 }
 
 export async function loadPublishedKaraokeIntoPlayer(track: PublishedKaraokeTrack) {

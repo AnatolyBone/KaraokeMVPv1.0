@@ -4,7 +4,8 @@ import { supabase } from '../services/supabaseClient';
 import { localization } from '../utils/localization';
 import { 
   X, Users, Music, Layers, Cpu, ShieldAlert, Trash2, Shield, User, 
-  Search, RefreshCw, AlertTriangle, Settings, FileText, MessageSquare, Clipboard
+  Search, RefreshCw, AlertTriangle, Settings, FileText, MessageSquare, Clipboard,
+  Activity, Eye, UploadCloud, Video
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -15,6 +16,76 @@ interface AdminPanelModalProps {
 }
 
 type TabType = 'users' | 'songs' | 'published' | 'stems' | 'feedback' | 'settings' | 'logs';
+
+type AdminKpiStats = {
+  usersToday: number | null;
+  uniqueToday: number | null;
+  appOpensToday: number | null;
+  screenViewsToday: number | null;
+  publicOpensToday: number | null;
+  exportsCompletedToday: number | null;
+  publicationsToday: number | null;
+  feedbackNew: number | null;
+};
+
+const emptyKpiStats: AdminKpiStats = {
+  usersToday: null,
+  uniqueToday: null,
+  appOpensToday: null,
+  screenViewsToday: null,
+  publicOpensToday: null,
+  exportsCompletedToday: null,
+  publicationsToday: null,
+  feedbackNew: null,
+};
+
+function startOfTodayIso() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+async function countRows(table: string, filter?: (query: any) => any) {
+  let query = supabase.from(table).select('*', { count: 'exact', head: true });
+  if (filter) query = filter(query);
+  const { count, error } = await query;
+  if (error) {
+    console.warn(`Failed to count ${table}:`, error);
+    return null;
+  }
+  return count || 0;
+}
+
+async function countDistinctVisitors(sinceIso: string) {
+  const { data, error } = await supabase
+    .from('app_events')
+    .select('user_id, telegram_id, anonymous_id')
+    .gte('created_at', sinceIso)
+    .limit(10000);
+
+  if (error) {
+    console.warn('Failed to count distinct visitors:', error);
+    return null;
+  }
+
+  const anonymousToKnownUser = new Map<string, string>();
+  (data || []).forEach((row: any) => {
+    const knownId = row.user_id || (row.telegram_id ? `tg:${row.telegram_id}` : null);
+    if (knownId && row.anonymous_id) {
+      anonymousToKnownUser.set(row.anonymous_id, knownId);
+    }
+  });
+
+  const unique = new Set<string>();
+  (data || []).forEach((row: any) => {
+    const knownId = row.user_id || (row.telegram_id ? `tg:${row.telegram_id}` : null);
+    const resolvedAnonymousId = row.anonymous_id ? anonymousToKnownUser.get(row.anonymous_id) : null;
+    const id = knownId || resolvedAnonymousId || (row.anonymous_id ? `anon:${row.anonymous_id}` : null);
+    if (id) unique.add(id);
+  });
+
+  return unique.size;
+}
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClose, variant = 'modal' }) => {
   const { theme, language } = useKaraokeStore();
@@ -34,6 +105,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
   const [debugLogs, setDebugLogs] = useState<any[]>([]);
   const [feedbackItems, setFeedbackItems] = useState<any[]>([]);
   const [feedbackFilter, setFeedbackFilter] = useState<string>('all');
+  const [kpiStats, setKpiStats] = useState<AdminKpiStats>(emptyKpiStats);
+  const [kpiLoading, setKpiLoading] = useState(false);
   
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [expandedFeedbackId, setExpandedFeedbackId] = useState<string | null>(null);
@@ -46,8 +119,48 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
   useEffect(() => {
     if (isOpen) {
       fetchData();
+      fetchKpiStats();
     }
   }, [isOpen, activeTab]);
+
+  const fetchKpiStats = async () => {
+    setKpiLoading(true);
+    const todayIso = startOfTodayIso();
+    try {
+      const [
+        usersToday,
+        uniqueToday,
+        appOpensToday,
+        screenViewsToday,
+        publicOpensToday,
+        exportsCompletedToday,
+        publicationsToday,
+        feedbackNew,
+      ] = await Promise.all([
+        countRows('profiles', (q) => q.gte('created_at', todayIso)),
+        countDistinctVisitors(todayIso),
+        countRows('app_events', (q) => q.eq('event_name', 'app_open').gte('created_at', todayIso)),
+        countRows('app_events', (q) => q.eq('event_name', 'screen_view').gte('created_at', todayIso)),
+        countRows('app_events', (q) => q.eq('event_name', 'public_karaoke_opened').gte('created_at', todayIso)),
+        countRows('app_events', (q) => q.eq('event_name', 'video_export_completed').gte('created_at', todayIso)),
+        countRows('published_karaoke', (q) => q.gte('created_at', todayIso)),
+        countRows('feedback', (q) => q.eq('status', 'new')),
+      ]);
+
+      setKpiStats({
+        usersToday,
+        uniqueToday,
+        appOpensToday,
+        screenViewsToday,
+        publicOpensToday,
+        exportsCompletedToday,
+        publicationsToday,
+        feedbackNew,
+      });
+    } finally {
+      setKpiLoading(false);
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -313,6 +426,58 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
     return feedbackItems.filter(item => item.status === filter || item.type === filter).length;
   };
 
+  const formatKpi = (value: number | null) => value === null ? '-' : value.toString();
+  const kpiCards = [
+    {
+      label: language === 'ru' ? 'Новые пользователи' : 'New users',
+      value: kpiStats.usersToday,
+      icon: Users,
+      accent: 'text-violet-500',
+    },
+    {
+      label: language === 'ru' ? 'Уникальные сегодня' : 'Unique today',
+      value: kpiStats.uniqueToday,
+      icon: Activity,
+      accent: 'text-sky-500',
+    },
+    {
+      label: language === 'ru' ? 'Открытия приложения' : 'App opens',
+      value: kpiStats.appOpensToday,
+      icon: Eye,
+      accent: 'text-emerald-500',
+    },
+    {
+      label: language === 'ru' ? 'Просмотры экранов' : 'Screen views',
+      value: kpiStats.screenViewsToday,
+      icon: Layers,
+      accent: 'text-fuchsia-500',
+    },
+    {
+      label: language === 'ru' ? 'Публичные караоке' : 'Public karaoke opens',
+      value: kpiStats.publicOpensToday,
+      icon: Music,
+      accent: 'text-pink-500',
+    },
+    {
+      label: language === 'ru' ? 'Экспорты видео' : 'Video exports',
+      value: kpiStats.exportsCompletedToday,
+      icon: Video,
+      accent: 'text-orange-500',
+    },
+    {
+      label: language === 'ru' ? 'Публикации' : 'Publications',
+      value: kpiStats.publicationsToday,
+      icon: UploadCloud,
+      accent: 'text-lime-500',
+    },
+    {
+      label: language === 'ru' ? 'Новый фидбэк' : 'New feedback',
+      value: kpiStats.feedbackNew,
+      icon: MessageSquare,
+      accent: 'text-red-500',
+    },
+  ];
+
   return (
     <div className={isPage ? 'relative z-10 mx-auto flex w-full max-w-7xl flex-1 p-4 sm:p-6' : 'fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4'}>
       {/* Backdrop with premium blur */}
@@ -351,6 +516,31 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
           >
             <X size={16} />
           </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 border-b border-zinc-200 bg-zinc-50/50 p-3 dark:border-zinc-900 dark:bg-zinc-950/30 sm:grid-cols-4 xl:grid-cols-8">
+          {kpiCards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <div
+                key={card.label}
+                className={`rounded-2xl border p-3 transition-all ${
+                  theme === 'dark'
+                    ? 'border-zinc-800 bg-zinc-900/35'
+                    : 'border-zinc-200 bg-white'
+                }`}
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <Icon size={15} className={card.accent} />
+                  {kpiLoading && <RefreshCw size={12} className="animate-spin text-zinc-400" />}
+                </div>
+                <div className="text-lg font-black tabular-nums">{formatKpi(card.value)}</div>
+                <div className="mt-0.5 text-[9px] font-extrabold uppercase leading-tight tracking-wide text-zinc-400">
+                  {card.label}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Modal Tabs Navigation */}
@@ -458,7 +648,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
             />
           </div>
           <button 
-            onClick={fetchData}
+            onClick={() => {
+              fetchData();
+              fetchKpiStats();
+            }}
             disabled={loading}
             className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-500 disabled:opacity-50 transition-all flex items-center gap-1.5 font-semibold text-xs"
           >

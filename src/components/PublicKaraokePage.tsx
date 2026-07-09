@@ -8,6 +8,7 @@ import {
   getPublishedKaraokeCoverUrl,
   loadPublishedKaraokeIntoPlayer,
   PublishedKaraokeTrack,
+  trackPublishedKaraokeOpen,
 } from '../utils/publishedKaraoke';
 
 interface PublicKaraokePageProps {
@@ -44,6 +45,8 @@ export const PublicKaraokePage: React.FC<PublicKaraokePageProps> = ({ karaokeId,
       setTrack(data);
       if (data) {
         await loadPublishedKaraokeIntoPlayer(data);
+        trackPublishedKaraokeOpen(data);
+        setTrack((current) => current ? { ...current, plays_count: (current.plays_count || 0) + 1 } : current);
       }
       setLoading(false);
     };

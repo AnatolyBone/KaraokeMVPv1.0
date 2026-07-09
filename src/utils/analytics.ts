@@ -2,7 +2,7 @@ import { supabase } from '../services/supabaseClient';
 
 const ANONYMOUS_ID_KEY = 'karaoke_analytics_anonymous_id';
 
-function getAnonymousId() {
+export function getAnonymousId() {
   if (typeof window === 'undefined') return null;
 
   let id = localStorage.getItem(ANONYMOUS_ID_KEY);
