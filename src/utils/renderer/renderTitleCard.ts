@@ -8,8 +8,6 @@ const smoothstep = (value: number) => {
   return t * t * (3 - 2 * t);
 };
 
-const MODERN_VIDEO_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
-
 function getTrackTitle(audioFileName: string) {
   const cleanName = audioFileName.replace(/\.[^/.]+$/, '').replace(/\s+/g, ' ').trim();
   const parts = cleanName.split(/\s+-\s+/).map(part => part.trim()).filter(Boolean);
@@ -41,9 +39,7 @@ export function renderTitleCard(ctx: Canvas2DContext, frame: RenderFrame, timedL
   const isVertical = styleOptions.aspectRatio === '9:16';
   const isSquare = styleOptions.aspectRatio === '1:1';
   const isSplitLayout = styleOptions.animationStyle === 'split-screen' && !isVertical && !isSquare;
-  const fontFamily = styleOptions.preset === 'apple-music' || styleOptions.preset === 'minimal-cinema'
-    ? MODERN_VIDEO_FONT
-    : styleOptions.fontFamily;
+  const fontFamily = styleOptions.fontFamily;
   const titleSize = resolution === '1080p'
     ? isVertical ? 66 : 62
     : isVertical ? 44 : 40;

@@ -26,6 +26,8 @@ export const ExportPanel: React.FC = () => {
     dailyPublishLimitFree,
     dailyPublishLimitPro,
     currentProjectId,
+    audioUrl,
+    coverUrl,
   } = useKaraokeStore();
   const [format, setFormat] = useState<ExportFormat>('lrc');
   const dict = localization[language];
@@ -65,13 +67,16 @@ export const ExportPanel: React.FC = () => {
 
   // Check files in DB
   useEffect(() => {
+    let cancelled = false;
     const checkDBFiles = async () => {
       try {
         const audioFile = await loadAudioFromDB() || (currentProjectId ? await loadProjectAudioFromDB(currentProjectId) : null);
+        if (cancelled) return;
         setHasLocalAudio(!!audioFile);
         setUploadAudio(!!audioFile);
 
         const coverFile = await loadCoverFromDB() || (currentProjectId ? await loadProjectCoverFromDB(currentProjectId) : null);
+        if (cancelled) return;
         setHasLocalCover(!!coverFile);
         setUploadCover(!!coverFile);
       } catch (err) {
@@ -79,7 +84,10 @@ export const ExportPanel: React.FC = () => {
       }
     };
     checkDBFiles();
-  }, [currentProjectId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProjectId, audioUrl, coverUrl]);
 
   const handlePublish = async () => {
     if (!artist.trim() || !title.trim()) {

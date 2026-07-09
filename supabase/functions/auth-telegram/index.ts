@@ -332,7 +332,7 @@ async function buildAdminStatsMessage(supabaseAdmin: any) {
     `⚙️ *Система*\n` +
     `- Логов вебхука за 24ч: *${formatCount(logs24h)}*\n` +
     `- Обновлено: ${generatedAt} МСК\n\n` +
-    `🔗 *Админка*: ${APP_URL}?admin=1`;
+    `🔗 *Админка*: ${APP_URL}admin`;
 }
 
 

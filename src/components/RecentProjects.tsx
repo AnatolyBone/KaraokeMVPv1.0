@@ -21,6 +21,7 @@ export const RecentProjects: React.FC = () => {
 
   const [title, setTitle] = useState(currentProjectTitle || audioFileName?.replace(/\.[^/.]+$/, '') || '');
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const dict = localization[language];
   const canSave = lines.length > 0;
   const canPublish = lines.some((line) => line.time !== null);
@@ -39,8 +40,8 @@ export const RecentProjects: React.FC = () => {
       return;
     }
     await saveCurrentAsProject(title);
-    setTitle('');
-    alert(dict.projectSaved);
+    setSaveStatus('saved');
+    window.setTimeout(() => setSaveStatus('idle'), 2600);
   };
 
   const handleOpenProject = async (projectId: string) => {
@@ -94,8 +95,19 @@ export const RecentProjects: React.FC = () => {
           title={dict.saveProject}
         >
           <Save size={14} />
-          {language === 'ru' ? 'Сохранить проект' : 'Save project'}
+          {language === 'ru' ? 'Сохранить черновик' : 'Save draft'}
         </button>
+        {saveStatus === 'saved' && (
+          <div className={`rounded-xl border px-3 py-2 text-[11px] font-semibold ${
+            theme === 'dark'
+              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          }`}>
+            {language === 'ru'
+              ? 'Черновик сохранён. Чтобы он появился в каталоге, опубликуйте его.'
+              : 'Draft saved. Publish it to make it appear in the catalog.'}
+          </div>
+        )}
       </form>
 
       <div className="mb-3 flex items-center justify-between text-[10px] font-extrabold uppercase tracking-wide text-zinc-400">
@@ -142,7 +154,7 @@ export const RecentProjects: React.FC = () => {
                 handleOpenProject(project.id);
               }
             }}
-            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all cursor-pointer ${
+            className={`group flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500/40 ${
               theme === 'dark'
                 ? 'bg-zinc-900/40 hover:bg-zinc-900 border-zinc-800/80 hover:border-violet-500/40'
                 : 'bg-zinc-50 hover:bg-zinc-100 border-zinc-200 hover:border-violet-300'
@@ -160,7 +172,7 @@ export const RecentProjects: React.FC = () => {
                 <p className="text-[9px] text-zinc-455 truncate">
                   {openingProjectId === project.id
                     ? (language === 'ru' ? 'Открываю проект...' : 'Opening project...')
-                    : `${project.lines.length} ${language === 'ru' ? 'строк' : 'lines'} · ${project.lines.filter(l => l.time !== null).length} ${language === 'ru' ? 'с тайм.' : 'timed'}`}
+                    : `${project.lines.length} ${language === 'ru' ? 'строк' : 'lines'} · ${project.lines.filter(l => l.time !== null).length} ${language === 'ru' ? 'с тайм.' : 'timed'} · ${language === 'ru' ? 'нажмите, чтобы открыть' : 'click to open'}`}
                 </p>
               </div>
             </div>

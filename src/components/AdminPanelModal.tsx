@@ -11,13 +11,15 @@ import { UserProfile } from '../types';
 interface AdminPanelModalProps {
   isOpen: boolean;
   onClose: () => void;
+  variant?: 'modal' | 'page';
 }
 
 type TabType = 'users' | 'songs' | 'published' | 'stems' | 'feedback' | 'settings' | 'logs';
 
-export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClose }) => {
+export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClose, variant = 'modal' }) => {
   const { theme, language } = useKaraokeStore();
   const dict = localization[language];
+  const isPage = variant === 'page';
 
   const [activeTab, setActiveTab] = useState<TabType>('users');
   const [loading, setLoading] = useState<boolean>(false);
@@ -312,16 +314,18 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
+    <div className={isPage ? 'relative z-10 mx-auto flex w-full max-w-7xl flex-1 p-4 sm:p-6' : 'fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4'}>
       {/* Backdrop with premium blur */}
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300"
-        onClick={onClose}
-      />
+      {!isPage && (
+        <div
+          className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300"
+          onClick={onClose}
+        />
+      )}
 
       {/* Modal Container */}
       <div 
-        className={`relative flex h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-3xl border shadow-2xl transition-all duration-300 ${
+        className={`relative flex ${isPage ? 'min-h-[calc(100vh-140px)]' : 'h-[92vh]'} w-full max-w-7xl flex-col overflow-hidden rounded-3xl border shadow-2xl transition-all duration-300 ${
           theme === 'dark' 
             ? 'bg-zinc-950/90 border-zinc-800 text-zinc-100 shadow-zinc-950/50' 
             : 'bg-white border-zinc-200 text-zinc-900 shadow-zinc-300/30'

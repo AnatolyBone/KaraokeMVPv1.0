@@ -3,7 +3,7 @@ import { useKaraokeStore } from '../store/useKaraokeStore';
 import { supabase } from '../services/supabaseClient';
 import { getStoragePublicUrl } from '../services/supabaseLyricsService';
 import { extractDominantColors } from '../utils/colors';
-import { Music, Play, Search, Heart, Loader2, Disc, Library, Share2 } from 'lucide-react';
+import { Eye, Music, Play, Search, Heart, Loader2, Disc, Library, Share2 } from 'lucide-react';
 import { lrclibProviderInstance } from '../services/lrclibService';
 import { parseLRC } from '../utils/lrc';
 
@@ -55,6 +55,7 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
           audio_storage_path,
           cover_storage_path,
           likes_count,
+          plays_count,
           songs (
             id,
             artist,
@@ -93,6 +94,7 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
             audio_storage_path: null,
             cover_storage_path: null,
             likes_count: 0,
+            plays_count: 0,
             telegram_file_id: share.file_id,
             songs: {
               artist: share.artist || 'Unknown Artist',
@@ -136,6 +138,7 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
           audio_storage_path,
           cover_storage_path,
           likes_count,
+          plays_count,
           songs (
             id,
             artist,
@@ -376,13 +379,24 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
           <span className="text-xs font-semibold">{language === 'ru' ? 'Загрузка каталога...' : 'Loading catalog...'}</span>
         </div>
       ) : (searchQuery.trim() ? searchResults : tracks).length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-zinc-800 rounded-2xl bg-zinc-950/10 text-zinc-500 gap-2">
-          <Disc size={36} className="stroke-[1.25] text-zinc-700" />
-          <span className="text-xs font-medium">
+        <div className={`flex flex-col items-center justify-center py-16 px-6 text-center border border-dashed rounded-2xl gap-2 ${
+          theme === 'dark'
+            ? 'border-zinc-800 bg-zinc-950/20 text-zinc-500'
+            : 'border-violet-200/80 bg-white/55 text-zinc-500 shadow-sm'
+        }`}>
+          <Disc size={36} className={`stroke-[1.25] ${theme === 'dark' ? 'text-zinc-700' : 'text-violet-300'}`} />
+          <span className="text-sm font-extrabold text-zinc-700 dark:text-zinc-300">
             {searchQuery
               ? (language === 'ru' ? 'Песни не найдены' : 'No songs found')
               : (language === 'ru' ? 'Каталог пока пуст. Опубликуйте первый трек!' : 'The catalog is empty. Publish the first track!')}
           </span>
+          {searchQuery.trim() && (
+            <p className="max-w-md text-[11px] leading-relaxed text-zinc-500">
+              {language === 'ru'
+                ? 'Попробуйте другое название, артиста или откройте текущий проект и опубликуйте свою версию.'
+                : 'Try another title, artist, or open the current project and publish your version.'}
+            </p>
+          )}
           {!searchQuery.trim() && (
             <div className="mt-3 flex flex-col items-center gap-2">
               <p className="max-w-md text-[11px] leading-relaxed text-zinc-500">
@@ -416,7 +430,7 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
               <div
                 key={track.id}
                 onClick={() => handleSelectTrack(track)}
-                className={`group relative rounded-2xl p-4 border transition-all duration-300 flex flex-col justify-between cursor-pointer hover:-translate-y-1 hover:scale-[1.015] shadow-sm hover:shadow-violet-500/10 ${
+                className={`group relative rounded-2xl p-4 border transition-all duration-300 flex flex-col justify-between cursor-pointer hover:-translate-y-1 hover:scale-[1.015] shadow-sm hover:shadow-violet-500/10 focus-within:ring-2 focus-within:ring-violet-500/30 ${
                   theme === 'dark'
                     ? 'bg-zinc-900/40 backdrop-blur-xl border-white/5 hover:border-violet-500/30'
                     : 'bg-white border-zinc-200 hover:bg-zinc-50/50'
@@ -443,7 +457,9 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <h4 className="font-bold text-sm text-zinc-100 truncate group-hover:text-violet-400 transition-colors">
+                      <h4 className={`font-bold text-sm truncate group-hover:text-violet-500 transition-colors ${
+                        theme === 'dark' ? 'text-zinc-100' : 'text-zinc-900'
+                      }`}>
                         {track.songs.title}
                       </h4>
                       {isTelegramShare ? (
@@ -496,6 +512,10 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
                         <Heart size={11} className="fill-current text-pink-500/20 group-hover:scale-110 transition-transform" />
                         <span className="font-mono">{track.likes_count || 0}</span>
                       </button>
+                      <span className="flex items-center gap-1 text-zinc-500">
+                        <Eye size={11} />
+                        <span className="font-mono">{track.plays_count || 0}</span>
+                      </span>
                     </div>
                   )}
                 </div>

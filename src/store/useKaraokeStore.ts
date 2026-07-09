@@ -570,9 +570,11 @@ export const useKaraokeStore = create<KaraokeState>()(
                 bgType: 'gradient',
                 gradientPreset: 'ocean',
                 fontFamily: MODERN_VIDEO_FONT,
+                fontSize: 48,
                 animationStyle: 'split-screen',
                 fxOverlay: 'fluid-gradient',
                 glowSize: 0,
+                strokeWidth: 0,
                 visualizerType: 'none',
                 activeWordColor: '#ffffff',
                 inactiveWordColor: 'rgba(255,255,255,0.35)',
@@ -581,21 +583,25 @@ export const useKaraokeStore = create<KaraokeState>()(
             case 'spotify':
               Object.assign(updated, {
                 bgType: 'cover-blur',
-                animationStyle: 'classic-karaoke',
+                fontFamily: '"Inter", "Circular Std", "SF Pro Display", Arial, sans-serif',
+                fontSize: 52,
+                animationStyle: 'apple-music',
                 fxOverlay: 'none',
-                glowSize: 6,
+                glowSize: 2,
                 glowColor: '#1ed760',
                 visualizerType: 'none',
-                activeWordColor: '#f8fff8',
-                inactiveWordColor: 'rgba(255,255,255,0.64)',
-                strokeColor: 'rgba(0,0,0,0.52)',
-                strokeWidth: 2,
+                activeWordColor: '#ffffff',
+                inactiveWordColor: 'rgba(255,255,255,0.48)',
+                strokeColor: 'rgba(0,0,0,0.36)',
+                strokeWidth: 1,
               });
               break;
             case 'tiktok-neon':
               Object.assign(updated, {
                 bgType: 'gradient',
                 gradientPreset: 'purple-night',
+                fontFamily: '"Arial Black", "Inter", system-ui, sans-serif',
+                fontSize: 58,
                 animationStyle: 'kinetic',
                 fxOverlay: 'lens-dust',
                 glowSize: 8,
@@ -611,21 +617,28 @@ export const useKaraokeStore = create<KaraokeState>()(
               Object.assign(updated, {
                 bgType: 'gradient',
                 gradientPreset: 'ocean',
+                fontFamily: '"Arial Rounded MT Bold", "Trebuchet MS", Arial, sans-serif',
+                fontSize: 56,
                 animationStyle: 'classic-karaoke',
                 fxOverlay: 'snow',
                 glowSize: 4,
+                glowColor: '#00e5ff',
                 visualizerType: 'none',
                 activeWordColor: '#ffff00',
                 inactiveWordColor: '#ffffff',
+                strokeColor: 'rgba(0,0,0,0.68)',
+                strokeWidth: 3,
               });
               break;
             case 'minimal-cinema':
               Object.assign(updated, {
                 bgType: 'split-dark',
-                fontFamily: MODERN_VIDEO_FONT,
+                fontFamily: '"Avenir Next", "Inter", "SF Pro Display", Arial, sans-serif',
+                fontSize: 44,
                 animationStyle: 'split-screen',
                 fxOverlay: 'lens-dust',
                 glowSize: 0,
+                strokeWidth: 0,
                 visualizerType: 'none',
                 activeWordColor: '#ffffff',
                 inactiveWordColor: 'rgba(255,255,255,0.2)',

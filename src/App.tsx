@@ -25,6 +25,8 @@ const getPublicKaraokeIdFromPath = () => {
   return match ? decodeURIComponent(match[1]) : null;
 };
 
+const isAdminPath = () => window.location.pathname === '/admin';
+
 const App: React.FC = () => {
   const {
     step,
@@ -47,6 +49,7 @@ const App: React.FC = () => {
   const [tourActive, setTourActive] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
   const [publicKaraokeId, setPublicKaraokeId] = useState<string | null>(() => getPublicKaraokeIdFromPath());
+  const [adminRouteOpen, setAdminRouteOpen] = useState(() => isAdminPath());
   const [catalogOpen, setCatalogOpen] = useState(false);
   const lastTrackedScreenRef = useRef<string | null>(null);
 
@@ -79,7 +82,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const screen = publicKaraokeId ? 'public_karaoke' : catalogOpen ? 'catalog' : `${appMode}:${step}`;
+    const screen = adminRouteOpen ? 'admin' : publicKaraokeId ? 'public_karaoke' : catalogOpen ? 'catalog' : `${appMode}:${step}`;
     if (lastTrackedScreenRef.current === screen) return;
 
     lastTrackedScreenRef.current = screen;
@@ -91,11 +94,12 @@ const App: React.FC = () => {
       metadata: {
         screen,
         step,
+        adminRouteOpen,
         catalogOpen,
         publicKaraokeId,
       },
     });
-  }, [appMode, catalogOpen, publicKaraokeId, step, user?.id, userProfile?.telegram_id]);
+  }, [adminRouteOpen, appMode, catalogOpen, publicKaraokeId, step, user?.id, userProfile?.telegram_id]);
 
   useEffect(() => {
     const shouldOpenAdmin = new URLSearchParams(window.location.search).get('admin') === '1';
@@ -163,12 +167,15 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleRouteChange = () => {
       setPublicKaraokeId(getPublicKaraokeIdFromPath());
+      setAdminRouteOpen(isAdminPath());
     };
 
     window.addEventListener('popstate', handleRouteChange);
+    window.addEventListener('app-route-change', handleRouteChange);
     window.addEventListener('karaoke-route-change', handleRouteChange);
     return () => {
       window.removeEventListener('popstate', handleRouteChange);
+      window.removeEventListener('app-route-change', handleRouteChange);
       window.removeEventListener('karaoke-route-change', handleRouteChange);
     };
   }, []);
@@ -176,7 +183,15 @@ const App: React.FC = () => {
   const goToAppHome = () => {
     window.history.pushState({}, '', '/');
     setPublicKaraokeId(null);
+    setAdminRouteOpen(false);
     setCatalogOpen(false);
+  };
+
+  const openAdminRoute = () => {
+    window.history.pushState({}, '', '/admin');
+    setPublicKaraokeId(null);
+    setCatalogOpen(false);
+    setAdminRouteOpen(true);
   };
 
   const openPublishPanel = () => {
@@ -374,7 +389,7 @@ const App: React.FC = () => {
             <div className="flex lg:hidden items-center gap-1.5 shrink-0">
               {userProfile?.role === 'admin' && (
                 <button
-                  onClick={() => setIsAdminOpen(true)}
+                  onClick={openAdminRoute}
                   className="p-2 rounded-xl border bg-red-500/10 border-red-500/20 text-red-500 active:scale-95 transition-all"
                   title={dict.adminButton}
                 >
@@ -520,7 +535,7 @@ const App: React.FC = () => {
             <div className="hidden lg:flex items-center gap-1.5 shrink-0">
               {userProfile?.role === 'admin' && (
                 <button
-                  onClick={() => setIsAdminOpen(true)}
+                  onClick={openAdminRoute}
                   className={`p-1.5 xl:p-2 rounded-xl border hover:scale-105 transition-all bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-500`}
                   title={dict.adminButton}
                 >
@@ -611,7 +626,36 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {publicKaraokeId ? (
+      {adminRouteOpen ? (
+        userProfile?.role === 'admin' ? (
+          <AdminPanelModal isOpen={true} onClose={goToAppHome} variant="page" />
+        ) : (
+          <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-4 py-10">
+            <div className={`w-full rounded-3xl border p-6 text-center shadow-xl ${
+              theme === 'dark'
+                ? 'border-white/10 bg-zinc-950/55 text-zinc-100'
+                : 'border-zinc-200 bg-white/75 text-zinc-900'
+            }`}>
+              <Shield size={28} className="mx-auto mb-3 text-red-500" />
+              <h2 className="text-lg font-extrabold">
+                {language === 'ru' ? 'Админка доступна только администраторам' : 'Admin page is available to admins only'}
+              </h2>
+              <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-zinc-500">
+                {language === 'ru'
+                  ? 'Войдите через Telegram под админским аккаунтом или вернитесь в приложение.'
+                  : 'Log in with an admin Telegram account or return to the app.'}
+              </p>
+              {!user && <div className="mt-5"><AuthSection /></div>}
+              <button
+                onClick={goToAppHome}
+                className="mt-5 rounded-xl bg-violet-600 px-4 py-2 text-xs font-extrabold text-white transition-all hover:bg-violet-700"
+              >
+                {language === 'ru' ? 'Вернуться в приложение' : 'Back to app'}
+              </button>
+            </div>
+          </main>
+        )
+      ) : publicKaraokeId ? (
         <PublicKaraokePage karaokeId={publicKaraokeId} onBackToApp={goToAppHome} />
       ) : (
       /* Main Content Section */
