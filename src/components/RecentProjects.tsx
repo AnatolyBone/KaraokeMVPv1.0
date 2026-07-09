@@ -20,6 +20,7 @@ export const RecentProjects: React.FC = () => {
   } = useKaraokeStore();
 
   const [title, setTitle] = useState(currentProjectTitle || audioFileName?.replace(/\.[^/.]+$/, '') || '');
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const dict = localization[language];
   const canSave = lines.length > 0;
   const canPublish = lines.some((line) => line.time !== null);
@@ -40,6 +41,15 @@ export const RecentProjects: React.FC = () => {
     await saveCurrentAsProject(title);
     setTitle('');
     alert(dict.projectSaved);
+  };
+
+  const handleOpenProject = async (projectId: string) => {
+    setOpeningProjectId(projectId);
+    try {
+      await loadProject(projectId);
+    } finally {
+      setOpeningProjectId(null);
+    }
   };
 
   return (
@@ -123,16 +133,23 @@ export const RecentProjects: React.FC = () => {
         {recentProjects.map((project) => (
           <div
             key={project.id}
-            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all ${
+            role="button"
+            tabIndex={0}
+            onClick={() => handleOpenProject(project.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleOpenProject(project.id);
+              }
+            }}
+            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all cursor-pointer ${
               theme === 'dark'
-                ? 'bg-zinc-900/40 hover:bg-zinc-900 border-zinc-800/80'
-                : 'bg-zinc-50 hover:bg-zinc-100 border-zinc-200'
+                ? 'bg-zinc-900/40 hover:bg-zinc-900 border-zinc-800/80 hover:border-violet-500/40'
+                : 'bg-zinc-50 hover:bg-zinc-100 border-zinc-200 hover:border-violet-300'
             }`}
+            title={language === 'ru' ? 'Открыть проект' : 'Open project'}
           >
-            <div
-              onClick={() => loadProject(project.id)}
-              className="flex-1 min-w-0 cursor-pointer flex items-center gap-2"
-            >
+            <div className="flex-1 min-w-0 flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-violet-500/10 text-violet-500 shrink-0">
                 <Music size={12} />
               </div>
@@ -141,15 +158,20 @@ export const RecentProjects: React.FC = () => {
                   {project.title}
                 </p>
                 <p className="text-[9px] text-zinc-455 truncate">
-                  {project.lines.length} {language === 'ru' ? 'строк' : 'lines'} • {project.lines.filter(l => l.time !== null).length} {language === 'ru' ? 'с тайм.' : 'timed'}
+                  {openingProjectId === project.id
+                    ? (language === 'ru' ? 'Открываю проект...' : 'Opening project...')
+                    : `${project.lines.length} ${language === 'ru' ? 'строк' : 'lines'} · ${project.lines.filter(l => l.time !== null).length} ${language === 'ru' ? 'с тайм.' : 'timed'}`}
                 </p>
               </div>
             </div>
 
             <button
-              onClick={() => deleteProject(project.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteProject(project.id);
+              }}
               className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
-              title="Удалить"
+              title={language === 'ru' ? 'Удалить' : 'Delete'}
             >
               <Trash2 size={13} />
             </button>

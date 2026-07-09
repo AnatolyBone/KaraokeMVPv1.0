@@ -6,6 +6,8 @@ import { parseLRC } from '../utils/lrc';
 import { supabase } from '../services/supabaseClient';
 import { User } from '@supabase/supabase-js';
 import { audioRef } from '../audioRef';
+import { extractCoverFromAudio } from '../utils/cover';
+import { extractDominantColors } from '../utils/colors';
 import {
   clearProjectMediaFromDB,
   loadCoverFromDB,
@@ -19,6 +21,58 @@ import {
 } from '../utils/db';
 
 const MODERN_VIDEO_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
+
+type SavedProjectDraft = {
+  id: string;
+  title: string;
+  rawText: string;
+  lines: LyricLine[];
+  audioFileName: string | null;
+  coverColors: { primary: string; secondary: string; glow: string } | null;
+  videoStyle?: VideoStyleOptions;
+};
+
+function normalizeTrackLookup(value: string | null | undefined) {
+  return (value || '')
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/ё/g, 'е')
+    .replace(/\b(karaoke|караоке|minus|минус|instrumental|official|audio)\b/gi, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function telegramShareMatchesProject(share: any, project: SavedProjectDraft) {
+  const projectKeys = [
+    project.audioFileName,
+    project.title,
+  ].map(normalizeTrackLookup).filter(Boolean);
+
+  const shareKeys = [
+    share.file_name,
+    share.artist && share.title ? `${share.artist} ${share.title}` : null,
+    share.artist && share.title ? `${share.artist} - ${share.title}` : null,
+    share.title,
+  ].map(normalizeTrackLookup).filter(Boolean);
+
+  return projectKeys.some((projectKey) =>
+    shareKeys.some((shareKey) =>
+      projectKey === shareKey ||
+      projectKey.includes(shareKey) ||
+      shareKey.includes(projectKey)
+    )
+  );
+}
+
+async function blobUrlToBlob(url: string): Promise<Blob | null> {
+  try {
+    const response = await fetch(url);
+    return await response.blob();
+  } catch {
+    return null;
+  }
+}
 
 interface KaraokeState {
   step: AppStep;
@@ -376,7 +430,7 @@ export const useKaraokeStore = create<KaraokeState>()(
       },
 
       loadProject: async (id) => {
-        const { recentProjects } = get();
+        const { recentProjects, user, userProfile } = get();
         const project = recentProjects.find(p => p.id === id);
         if (project) {
           const previousAudioUrl = get().audioUrl;
@@ -384,10 +438,58 @@ export const useKaraokeStore = create<KaraokeState>()(
             URL.revokeObjectURL(previousAudioUrl);
           }
 
-          const projectAudio = await loadProjectAudioFromDB(project.id);
-          const projectCover = await loadProjectCoverFromDB(project.id);
+          let projectAudio = await loadProjectAudioFromDB(project.id);
+          let projectCover = await loadProjectCoverFromDB(project.id);
+
+          if (!projectAudio && user && userProfile?.telegram_id && project.audioFileName) {
+            try {
+              const { data: telegramTracks, error } = await supabase
+                .from('telegram_audio_shares')
+                .select('*')
+                .eq('telegram_id', userProfile.telegram_id)
+                .order('created_at', { ascending: false })
+                .limit(100);
+
+              if (error) throw error;
+
+              const matchedTrack = (telegramTracks || []).find((track: any) => telegramShareMatchesProject(track, project));
+              if (matchedTrack?.file_id) {
+                const response = await fetch(
+                  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-telegram?action=download-audio&file_id=${encodeURIComponent(matchedTrack.file_id)}`
+                );
+                if (!response.ok) {
+                  throw new Error(`Telegram audio restore failed: ${response.status}`);
+                }
+
+                const blob = await response.blob();
+                const fileType = blob.type && blob.type.startsWith('audio/')
+                  ? blob.type
+                  : (matchedTrack.file_name?.toLowerCase().endsWith('.wav') ? 'audio/wav'
+                    : matchedTrack.file_name?.toLowerCase().endsWith('.ogg') ? 'audio/ogg'
+                    : matchedTrack.file_name?.toLowerCase().endsWith('.m4a') ? 'audio/x-m4a'
+                    : 'audio/mpeg');
+                projectAudio = new File([blob], matchedTrack.file_name || project.audioFileName, { type: fileType });
+                await saveProjectAudioToDB(project.id, projectAudio);
+
+                const extractedCover = await extractCoverFromAudio(projectAudio);
+                if (extractedCover) {
+                  const coverBlob = await blobUrlToBlob(extractedCover);
+                  if (coverBlob) {
+                    projectCover = coverBlob;
+                    await saveProjectCoverToDB(project.id, coverBlob);
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('Failed to restore project audio from Telegram import:', err);
+            }
+          }
+
           const audioUrl = projectAudio ? URL.createObjectURL(projectAudio) : null;
           const coverUrl = projectCover ? URL.createObjectURL(projectCover) : null;
+          const restoredCoverColors = coverUrl
+            ? await extractDominantColors(coverUrl).catch(() => project.coverColors)
+            : project.coverColors;
 
           try {
             if (projectAudio) {
@@ -408,7 +510,7 @@ export const useKaraokeStore = create<KaraokeState>()(
             audioFileName: projectAudio ? project.audioFileName : null,
             currentProjectTitle: project.title,
             coverUrl,
-            coverColors: project.coverColors,
+            coverColors: restoredCoverColors,
             step: 'edit',
             currentIndex: project.lines.filter(l => l.time !== null).length,
             currentWordIndex: 0,
