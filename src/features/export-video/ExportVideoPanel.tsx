@@ -7,6 +7,7 @@ import { clearTextWidthCache } from '../../utils/renderer/textCache';
 import { renderBackground } from '../../utils/renderer/renderBackground';
 import { RenderFrame } from '../../utils/renderer/types';
 import { extractDominantColors } from '../../utils/colors';
+import { trackAppEvent } from '../../utils/analytics';
 import { FileVideo, Download, AlertCircle, RefreshCw, XCircle, CheckCircle2, Palette, Type, Eye, Film, Activity, ShieldAlert, LayoutGrid, SlidersHorizontal, Copy } from 'lucide-react';
 
 const MODERN_VIDEO_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
@@ -58,7 +59,9 @@ export const ExportVideoPanel: React.FC = () => {
     coverUrl,
     coverColors,
     setCoverColors,
-    language
+    language,
+    user,
+    userProfile
   } = useKaraokeStore();
   
   const [resolution, setResolution] = useState<'720p' | '1080p'>('720p');
@@ -997,6 +1000,30 @@ export const ExportVideoPanel: React.FC = () => {
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    const exportStartedAt = Date.now();
+    const exportMetadata = {
+      preset: videoStyle.preset,
+      animationStyle: videoStyle.animationStyle,
+      fxOverlay: videoStyle.fxOverlay,
+      bgType: videoStyle.bgType,
+      resolution,
+      format: videoFormat,
+      fps: exportFps,
+      bitrateKbps: customBitrate,
+      quality,
+      lines: lines.length,
+      timedLines: timedLinesCount,
+      hasCover: Boolean(coverUrl),
+      title: (currentProjectTitle || '').trim() || getDefaultProjectTitle(audioFileName, lines, language),
+    };
+
+    trackAppEvent({
+      eventName: 'video_export_started',
+      userId: user?.id,
+      telegramId: userProfile?.telegram_id,
+      appMode: 'editor',
+      metadata: exportMetadata,
+    });
 
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -1100,9 +1127,31 @@ export const ExportVideoPanel: React.FC = () => {
           setVideoBlob(blob);
           setVideoObjectUrl(url);
           setIsRecording(false);
+          trackAppEvent({
+            eventName: 'video_export_completed',
+            userId: user?.id,
+            telegramId: userProfile?.telegram_id,
+            appMode: 'editor',
+            metadata: {
+              ...exportMetadata,
+              blobSize: blob.size,
+              durationMs: Date.now() - exportStartedAt,
+            },
+          });
         },
         onError: (err) => {
           if (controller.signal.aborted) return;
+          trackAppEvent({
+            eventName: 'video_export_failed',
+            userId: user?.id,
+            telegramId: userProfile?.telegram_id,
+            appMode: 'editor',
+            metadata: {
+              ...exportMetadata,
+              error: err.message || 'Unknown export error',
+              durationMs: Date.now() - exportStartedAt,
+            },
+          });
           setError(err.message || 'Неизвестная ошибка при экспорте видео');
           setIsRecording(false);
         },
@@ -1110,6 +1159,17 @@ export const ExportVideoPanel: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Failed to initialize audio capture context');
       setIsRecording(false);
+      trackAppEvent({
+        eventName: 'video_export_failed',
+        userId: user?.id,
+        telegramId: userProfile?.telegram_id,
+        appMode: 'editor',
+        metadata: {
+          ...exportMetadata,
+          error: err.message || 'Failed to initialize audio capture context',
+          durationMs: Date.now() - exportStartedAt,
+        },
+      });
     }
   };
 
@@ -1117,6 +1177,17 @@ export const ExportVideoPanel: React.FC = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+    trackAppEvent({
+      eventName: 'video_export_cancelled',
+      userId: user?.id,
+      telegramId: userProfile?.telegram_id,
+      appMode: 'editor',
+      metadata: {
+        progress,
+        secondsRecorded,
+        phase: exportPhase,
+      },
+    });
     setIsRecording(false);
     setProgress(0);
   };

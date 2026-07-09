@@ -247,9 +247,16 @@ async function buildAdminStatsMessage(supabaseAdmin: any) {
     usersTotal,
     usersToday,
     usersWeek,
-    appEventsToday,
+    appOpensToday,
     visitorsToday,
     visitorsWeek,
+    screenViewsToday,
+    catalogViewsToday,
+    publicKaraokeViewsToday,
+    videoExportsStartedToday,
+    videoExportsCompletedToday,
+    videoExportsFailedToday,
+    videoExportsCancelledToday,
     audioTotal,
     audioToday,
     audioWeek,
@@ -263,9 +270,16 @@ async function buildAdminStatsMessage(supabaseAdmin: any) {
     countRows(supabaseAdmin, 'profiles'),
     countRows(supabaseAdmin, 'profiles', (q) => q.gte('created_at', todayIso)),
     countRows(supabaseAdmin, 'profiles', (q) => q.gte('created_at', weekIso)),
-    countRows(supabaseAdmin, 'app_events', (q) => q.gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'app_events', (q) => q.eq('event_name', 'app_open').gte('created_at', todayIso)),
     countDistinctVisitors(supabaseAdmin, todayIso),
     countDistinctVisitors(supabaseAdmin, weekIso),
+    countRows(supabaseAdmin, 'app_events', (q) => q.eq('event_name', 'screen_view').gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'app_events', (q) => q.eq('event_name', 'screen_view').contains('metadata', { screen: 'catalog' }).gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'app_events', (q) => q.eq('event_name', 'screen_view').contains('metadata', { screen: 'public_karaoke' }).gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'app_events', (q) => q.eq('event_name', 'video_export_started').gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'app_events', (q) => q.eq('event_name', 'video_export_completed').gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'app_events', (q) => q.eq('event_name', 'video_export_failed').gte('created_at', todayIso)),
+    countRows(supabaseAdmin, 'app_events', (q) => q.eq('event_name', 'video_export_cancelled').gte('created_at', todayIso)),
     countRows(supabaseAdmin, 'telegram_audio_shares'),
     countRows(supabaseAdmin, 'telegram_audio_shares', (q) => q.gte('created_at', todayIso)),
     countRows(supabaseAdmin, 'telegram_audio_shares', (q) => q.gte('created_at', weekIso)),
@@ -283,9 +297,17 @@ async function buildAdminStatsMessage(supabaseAdmin: any) {
     `- Новых сегодня: *${formatCount(usersToday)}*\n` +
     `- Новых за 7 дней: *${formatCount(usersWeek)}*\n\n` +
     `🌐 *Посещаемость приложения*\n` +
-    `- Событий сегодня: *${formatCount(appEventsToday)}*\n` +
-    `- Уникальных сегодня: *${formatCount(visitorsToday)}*\n` +
+    `- Открытий приложения сегодня: *${formatCount(appOpensToday)}*\n` +
+    `- Уникальных пользователей сегодня: *${formatCount(visitorsToday)}*\n` +
     `- Уникальных за 7 дней: *${formatCount(visitorsWeek)}*\n\n` +
+    `- Просмотров экранов сегодня: *${formatCount(screenViewsToday)}*\n` +
+    `- Переходов в каталог: *${formatCount(catalogViewsToday)}*\n` +
+    `- Открытий публичных караоке: *${formatCount(publicKaraokeViewsToday)}*\n\n` +
+    `🎬 *Экспорт видео сегодня*\n` +
+    `- Запущено: *${formatCount(videoExportsStartedToday)}*\n` +
+    `- Завершено: *${formatCount(videoExportsCompletedToday)}*\n` +
+    `- Ошибок: *${formatCount(videoExportsFailedToday)}*\n` +
+    `- Отменено: *${formatCount(videoExportsCancelledToday)}*\n\n` +
     `🎵 *Импорт аудио из Telegram*\n` +
     `- Всего треков: *${formatCount(audioTotal)}*\n` +
     `- Сегодня: *${formatCount(audioToday)}*\n` +
