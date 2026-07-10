@@ -32,6 +32,18 @@ type KaraokeTester = {
   updated_at: string | null;
 };
 
+type TesterInsights = {
+  openedSite: boolean;
+  importedAudio: boolean;
+  startedExport: boolean;
+  completedExport: boolean;
+  sentFeedback: boolean;
+  lastSeenAt: string | null;
+  lastImportAt: string | null;
+  lastExportAt: string | null;
+  feedbackCount: number;
+};
+
 type AdminKpiStats = {
   usersToday: number | null;
   uniqueToday: number | null;
@@ -53,6 +65,24 @@ const emptyKpiStats: AdminKpiStats = {
   publicationsToday: null,
   feedbackNew: null,
 };
+
+const emptyTesterInsight = (): TesterInsights => ({
+  openedSite: false,
+  importedAudio: false,
+  startedExport: false,
+  completedExport: false,
+  sentFeedback: false,
+  lastSeenAt: null,
+  lastImportAt: null,
+  lastExportAt: null,
+  feedbackCount: 0,
+});
+
+function maxIso(current: string | null, next?: string | null) {
+  if (!next) return current;
+  if (!current) return next;
+  return new Date(next).getTime() > new Date(current).getTime() ? next : current;
+}
 
 function startOfTodayIso() {
   const date = new Date();
@@ -114,6 +144,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
   // Data lists
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [testers, setTesters] = useState<KaraokeTester[]>([]);
+  const [testerInsights, setTesterInsights] = useState<Record<number, TesterInsights>>({});
   const [songs, setSongs] = useState<any[]>([]);
   const [published, setPublished] = useState<any[]>([]);
   const [stems, setStems] = useState<any[]>([]);
@@ -182,6 +213,90 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
     }
   };
 
+  const loadTesterInsights = async (testerRows: KaraokeTester[]) => {
+    const testerIds = Array.from(new Set(testerRows.map((tester) => tester.telegram_id).filter(Boolean)));
+    if (testerIds.length === 0) {
+      setTesterInsights({});
+      return;
+    }
+
+    const [eventsResult, sharesResult, feedbackResult] = await Promise.all([
+      supabase
+        .from('app_events')
+        .select('telegram_id,event_name,created_at')
+        .in('telegram_id', testerIds)
+        .in('event_name', [
+          'app_open',
+          'screen_view',
+          'telegram_audio_imported',
+          'video_export_started',
+          'video_export_completed',
+        ])
+        .order('created_at', { ascending: false })
+        .limit(5000),
+      supabase
+        .from('telegram_audio_shares')
+        .select('telegram_id,created_at')
+        .in('telegram_id', testerIds)
+        .order('created_at', { ascending: false })
+        .limit(5000),
+      supabase
+        .from('feedback')
+        .select('telegram_id,created_at')
+        .in('telegram_id', testerIds)
+        .order('created_at', { ascending: false })
+        .limit(5000),
+    ]);
+
+    if (eventsResult.error) console.warn('Failed to fetch tester events:', eventsResult.error);
+    if (sharesResult.error) console.warn('Failed to fetch tester Telegram shares:', sharesResult.error);
+    if (feedbackResult.error) console.warn('Failed to fetch tester feedback:', feedbackResult.error);
+
+    const nextInsights: Record<number, TesterInsights> = {};
+    const getInsight = (telegramId: number) => {
+      if (!nextInsights[telegramId]) nextInsights[telegramId] = emptyTesterInsight();
+      return nextInsights[telegramId];
+    };
+
+    (eventsResult.data || []).forEach((event: any) => {
+      if (!event.telegram_id) return;
+      const insight = getInsight(event.telegram_id);
+      if (event.event_name === 'app_open' || event.event_name === 'screen_view') {
+        insight.openedSite = true;
+        insight.lastSeenAt = maxIso(insight.lastSeenAt, event.created_at);
+      }
+      if (event.event_name === 'telegram_audio_imported') {
+        insight.importedAudio = true;
+        insight.lastImportAt = maxIso(insight.lastImportAt, event.created_at);
+      }
+      if (event.event_name === 'video_export_started') {
+        insight.startedExport = true;
+        insight.lastExportAt = maxIso(insight.lastExportAt, event.created_at);
+      }
+      if (event.event_name === 'video_export_completed') {
+        insight.startedExport = true;
+        insight.completedExport = true;
+        insight.lastExportAt = maxIso(insight.lastExportAt, event.created_at);
+      }
+    });
+
+    (sharesResult.data || []).forEach((share: any) => {
+      if (!share.telegram_id) return;
+      const insight = getInsight(share.telegram_id);
+      insight.importedAudio = true;
+      insight.lastImportAt = maxIso(insight.lastImportAt, share.created_at);
+    });
+
+    (feedbackResult.data || []).forEach((feedback: any) => {
+      if (!feedback.telegram_id) return;
+      const insight = getInsight(feedback.telegram_id);
+      insight.sentFeedback = true;
+      insight.feedbackCount += 1;
+    });
+
+    setTesterInsights(nextInsights);
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -206,8 +321,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
         ]);
         if (testerError) throw testerError;
         if (limitError) console.warn('Failed to fetch tester limit:', limitError);
-        setTesters((testerData || []) as KaraokeTester[]);
+        const testerRows = (testerData || []) as KaraokeTester[];
+        setTesters(testerRows);
         setTesterLimit(limitData?.value || '50');
+        await loadTesterInsights(testerRows);
       } else if (activeTab === 'songs') {
         const { data, error } = await supabase
           .from('songs')
@@ -616,6 +733,25 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '-';
     return date.toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US');
+  };
+
+  const renderTesterSignal = (active: boolean, label: string, detail?: string | null, tone: 'green' | 'violet' | 'amber' = 'green') => {
+    const activeTone = tone === 'violet'
+      ? 'bg-violet-500/12 text-violet-600 dark:text-violet-300 border-violet-500/20'
+      : tone === 'amber'
+        ? 'bg-amber-500/12 text-amber-600 dark:text-amber-300 border-amber-500/20'
+        : 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-300 border-emerald-500/20';
+
+    return (
+      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-extrabold ${
+        active
+          ? activeTone
+          : 'border-zinc-200 bg-zinc-100/60 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-400'
+      }`} title={detail ? formatDateTime(detail) : undefined}>
+        <span>{active ? '✓' : '-'}</span>
+        <span>{label}</span>
+      </span>
+    );
   };
 
   const activeTesterCount = testers.filter((tester) =>
@@ -1104,6 +1240,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                           <th className="py-2.5 px-3">Tester</th>
                           <th className="py-2.5 px-3">Status</th>
                           <th className="py-2.5 px-3">Plus until</th>
+                          <th className="py-2.5 px-3">Progress</th>
                           <th className="py-2.5 px-3">Feedback</th>
                           <th className="py-2.5 px-3 text-right">Actions</th>
                         </tr>
@@ -1111,6 +1248,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                       <tbody>
                         {getFilteredTesters().map((tester) => {
                           const isActive = tester.status === 'tester_active' && tester.plus_until && new Date(tester.plus_until).getTime() > Date.now();
+                          const insight = testerInsights[tester.telegram_id] || emptyTesterInsight();
+                          const feedbackCount = Math.max(tester.feedback_count || 0, insight.feedbackCount || 0);
                           const statusClass = isActive
                             ? 'bg-emerald-500/10 text-emerald-500'
                             : tester.status === 'tester_waitlist'
@@ -1137,8 +1276,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                                   {formatDateTime(tester.plus_until)}
                                 </div>
                               </td>
+                              <td className="py-3 px-3">
+                                <div className="flex max-w-[310px] flex-wrap gap-1.5">
+                                  {renderTesterSignal(insight.openedSite, 'Site', insight.lastSeenAt, 'violet')}
+                                  {renderTesterSignal(insight.importedAudio, 'Audio', insight.lastImportAt, 'green')}
+                                  {renderTesterSignal(insight.startedExport || insight.completedExport, insight.completedExport ? 'Export done' : 'Export', insight.lastExportAt, insight.completedExport ? 'green' : 'amber')}
+                                  {renderTesterSignal(insight.sentFeedback || feedbackCount > 0, 'Feedback', null, 'violet')}
+                                </div>
+                              </td>
                               <td className="py-3 px-3 font-mono font-bold text-violet-500">
-                                {tester.feedback_count || 0}
+                                {feedbackCount}
                               </td>
                               <td className="py-3 px-3 text-right">
                                 <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -1167,7 +1314,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                         })}
                         {getFilteredTesters().length === 0 && (
                           <tr>
-                            <td colSpan={5} className="py-10 text-center text-zinc-500 dark:text-zinc-500 font-bold">
+                            <td colSpan={6} className="py-10 text-center text-zinc-500 dark:text-zinc-500 font-bold">
                               {dict.searchNoResults}
                             </td>
                           </tr>

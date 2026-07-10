@@ -12,6 +12,7 @@ import { parseLRC } from '../../utils/lrc';
 import { Upload, Trash2, Music, RefreshCw, Search, Smartphone, Loader2, Play, Pause } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { formatTime } from '../../utils/time';
+import { trackAppEvent } from '../../utils/analytics';
 
 function normalizeAutoSearchText(value: string): string {
   return value
@@ -148,7 +149,8 @@ export const AudioLoader: React.FC = () => {
     rawText,
     setRawText,
     setLines,
-    user
+    user,
+    userProfile
   } = useKaraokeStore();
 
   const [tgTracks, setTgTracks] = useState<any[]>([]);
@@ -477,6 +479,18 @@ export const AudioLoader: React.FC = () => {
            : 'audio/mpeg');
       const file = new File([blob], track.file_name, { type: fileType });
       await handleFile(file, { artist: track.artist, title: track.title });
+      trackAppEvent({
+        eventName: 'telegram_audio_imported',
+        userId: user?.id,
+        telegramId: userProfile?.telegram_id || track.telegram_id || null,
+        appMode: useKaraokeStore.getState().appMode,
+        metadata: {
+          trackId: track.id,
+          fileName: track.file_name,
+          artist: track.artist,
+          title: track.title,
+        },
+      });
       setShowTgImport(false);
     } catch (err: any) {
       alert(`${dict.audioTgImportError}: ${err.message}`);
@@ -623,7 +637,23 @@ export const AudioLoader: React.FC = () => {
                     {dict.audioTgImportNoTracks}
                   </p>
                 ) : (
-                  <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto pr-1">
+                  <div className="flex flex-col gap-3">
+                    <div className={`rounded-xl border p-3 text-[11px] ${
+                      theme === 'dark'
+                        ? 'border-violet-500/20 bg-violet-500/10 text-zinc-200'
+                        : 'border-violet-200 bg-violet-50/70 text-zinc-700'
+                    }`}>
+                      <p className="font-black text-violet-500 dark:text-violet-300">
+                        {language === 'ru' ? 'Быстрый путь к первому караоке' : 'Fast path to your first karaoke'}
+                      </p>
+                      <ol className="mt-2 space-y-1 font-semibold leading-relaxed text-zinc-600 dark:text-zinc-300">
+                        <li>{language === 'ru' ? '1. Выберите трек ниже.' : '1. Pick a track below.'}</li>
+                        <li>{language === 'ru' ? '2. Нажмите «Поиск текста» или дождитесь автопоиска.' : '2. Use lyrics search or wait for auto-search.'}</li>
+                        <li>{language === 'ru' ? '3. Проверьте живой плеер и переходите к экспорту.' : '3. Check the live player, then export.'}</li>
+                      </ol>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto pr-1">
                     {tgTracks.map((track) => (
                       <div
                         key={track.id}
@@ -664,6 +694,7 @@ export const AudioLoader: React.FC = () => {
                         </div>
                       </div>
                     ))}
+                    </div>
                   </div>
                 )}
               </div>

@@ -103,7 +103,7 @@ function escapeMarkdown(text: string): string {
 }
 
 
-async function sendTelegramMessage(chatId: number, text: string, botToken: string, replyMarkup?: any) {
+async function sendTelegramMessage(chatId: number, text: string, botToken: string, replyMarkup?: any): Promise<boolean> {
   try {
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
     const payload: any = {
@@ -134,11 +134,16 @@ async function sendTelegramMessage(chatId: number, text: string, botToken: strin
         });
         if (!fallbackResponse.ok) {
           console.error('Failed to send Telegram fallback message:', await fallbackResponse.text());
+          return false;
         }
+        return true;
       }
+      return false;
     }
+    return true;
   } catch (err) {
     console.error('Error sending Telegram message:', err);
+    return false;
   }
 }
 
@@ -347,6 +352,114 @@ async function buildAdminStatsMessage(supabaseAdmin: any) {
     `- Логов вебхука за 24ч: *${formatCount(logs24h)}*\n` +
     `- Обновлено: ${generatedAt} МСК\n\n` +
     `🔗 *Админка*: ${APP_URL}admin`;
+}
+
+async function sendWarmAudioFollowups(supabaseAdmin: any, adminChatId: number, botToken: string) {
+  const twoWeeksAgo = sinceHoursIso(24 * 14);
+  const oneWeekAgo = sinceHoursIso(24 * 7);
+
+  const { data: shares, error: sharesError } = await supabaseAdmin
+    .from('telegram_audio_shares')
+    .select('telegram_id,file_name,artist,title,created_at')
+    .gte('created_at', twoWeeksAgo)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  if (sharesError) {
+    console.error('Failed to load warm audio leads:', sharesError);
+    await sendTelegramMessage(adminChatId, `❌ Follow-up не сработал: ${sharesError.message}`, botToken, adminKeyboard);
+    return;
+  }
+
+  const latestShareByTelegramId = new Map<number, any>();
+  (shares || []).forEach((share: any) => {
+    if (share.telegram_id && !latestShareByTelegramId.has(share.telegram_id)) {
+      latestShareByTelegramId.set(share.telegram_id, share);
+    }
+  });
+
+  const telegramIds = Array.from(latestShareByTelegramId.keys());
+  if (telegramIds.length === 0) {
+    await sendTelegramMessage(adminChatId, '🎯 Follow-up: свежих треков для приглашения пока нет.', botToken, adminKeyboard);
+    return;
+  }
+
+  const [profilesResult, sentResult] = await Promise.all([
+    supabaseAdmin
+      .from('profiles')
+      .select('telegram_id')
+      .in('telegram_id', telegramIds),
+    supabaseAdmin
+      .from('app_events')
+      .select('telegram_id')
+      .eq('event_name', 'telegram_followup_sent')
+      .gte('created_at', oneWeekAgo)
+      .in('telegram_id', telegramIds),
+  ]);
+
+  if (profilesResult.error) {
+    console.error('Failed to load profiles for follow-up:', profilesResult.error);
+    await sendTelegramMessage(adminChatId, `❌ Follow-up не сработал: ${profilesResult.error.message}`, botToken, adminKeyboard);
+    return;
+  }
+
+  if (sentResult.error) {
+    console.warn('Failed to load sent follow-up events:', sentResult.error);
+  }
+
+  const existingProfiles = new Set((profilesResult.data || []).map((profile: any) => profile.telegram_id));
+  const recentlySent = new Set((sentResult.data || []).map((event: any) => event.telegram_id));
+  const leads = telegramIds
+    .filter((telegramId) => !existingProfiles.has(telegramId) && !recentlySent.has(telegramId))
+    .slice(0, 20);
+
+  if (leads.length === 0) {
+    await sendTelegramMessage(
+      adminChatId,
+      '🎯 Follow-up: все свежие пользователи уже открыли сайт или получали напоминание за последние 7 дней.',
+      botToken,
+      adminKeyboard
+    );
+    return;
+  }
+
+  let sentCount = 0;
+  let failedCount = 0;
+
+  for (const telegramId of leads) {
+    const share = latestShareByTelegramId.get(telegramId);
+    const trackTitle = [share?.artist, share?.title].filter(Boolean).join(' - ') || share?.file_name || 'ваш трек';
+    const message =
+      `🎤 Вы недавно отправляли *${escapeMarkdown(trackTitle)}*.\n\n` +
+      `Трек уже доступен в Karaoke LRC Maker: можно найти текст, проверить живой плеер и экспортировать караоке-видео.\n\n` +
+      `${APP_URL}`;
+
+    const ok = await sendTelegramMessage(telegramId, message, botToken, defaultKeyboard);
+    if (ok) {
+      sentCount += 1;
+      await supabaseAdmin.from('app_events').insert({
+        event_name: 'telegram_followup_sent',
+        telegram_id: telegramId,
+        route: 'telegram:/karaoke_followup',
+        source: 'telegram_bot',
+        metadata: {
+          fileName: share?.file_name || null,
+          artist: share?.artist || null,
+          title: share?.title || null,
+          sharedAt: share?.created_at || null,
+        },
+      });
+    } else {
+      failedCount += 1;
+    }
+  }
+
+  await sendTelegramMessage(
+    adminChatId,
+    `🎯 Follow-up готов.\n\nОтправлено: *${sentCount}*\nОшибок: *${failedCount}*\nКандидатов в запуске: *${leads.length}*`,
+    botToken,
+    adminKeyboard
+  );
 }
 
 async function trackPublicKaraokeOpen(supabaseAdmin: any, body: any, req: Request) {
@@ -770,6 +883,17 @@ Deno.serve(async (req) => {
         }
 
         // Сценарий 1: Ответ администратора на сообщение поддержки
+        if (normalizedText === '/karaoke_followup' || text === '🎯 Follow-up') {
+          const canViewAdmin = await isTelegramAdmin(supabaseAdmin, fromUser.id);
+          if (!canViewAdmin) {
+            await sendTelegramMessage(chatId, '⛔️ Эта команда доступна только администратору проекта.', botToken, defaultKeyboard);
+            return new Response('Unauthorized follow-up attempt', { status: 200 });
+          }
+
+          await sendWarmAudioFollowups(supabaseAdmin, chatId, botToken);
+          return new Response('Warm follow-up processed', { status: 200 });
+        }
+
         if (fromUser.id === adminId && body.message.reply_to_message) {
           const replyTo = body.message.reply_to_message;
           const originalText = replyTo.text || replyTo.caption || '';
