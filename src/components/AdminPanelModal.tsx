@@ -5,7 +5,7 @@ import { localization } from '../utils/localization';
 import { 
   X, Users, Music, Layers, Cpu, ShieldAlert, Trash2, Shield, User, 
   Search, RefreshCw, AlertTriangle, Settings, FileText, MessageSquare, Clipboard,
-  Activity, Eye, UploadCloud, Video
+  Activity, Eye, UploadCloud, Video, UserPlus, Clock, UserX
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -15,7 +15,22 @@ interface AdminPanelModalProps {
   variant?: 'modal' | 'page';
 }
 
-type TabType = 'users' | 'songs' | 'published' | 'stems' | 'feedback' | 'settings' | 'logs';
+type TabType = 'users' | 'testers' | 'songs' | 'published' | 'stems' | 'feedback' | 'settings' | 'logs';
+
+type KaraokeTester = {
+  id: number;
+  telegram_id: number;
+  username: string | null;
+  first_name: string | null;
+  source: string | null;
+  status: 'tester_active' | 'tester_waitlist' | 'tester_expired' | string;
+  plus_started_at: string | null;
+  plus_until: string | null;
+  accepted_at: string | null;
+  feedback_count: number | null;
+  created_at: string;
+  updated_at: string | null;
+};
 
 type AdminKpiStats = {
   usersToday: number | null;
@@ -98,6 +113,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
   
   // Data lists
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
+  const [testers, setTesters] = useState<KaraokeTester[]>([]);
   const [songs, setSongs] = useState<any[]>([]);
   const [published, setPublished] = useState<any[]>([]);
   const [stems, setStems] = useState<any[]>([]);
@@ -112,6 +128,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
   const [expandedFeedbackId, setExpandedFeedbackId] = useState<string | null>(null);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [newTesterTelegramId, setNewTesterTelegramId] = useState('');
+  const [newTesterUsername, setNewTesterUsername] = useState('');
+  const [testerDays, setTesterDays] = useState(30);
+  const [testerLimit, setTesterLimit] = useState('50');
 
   // Super Admin check
   const superAdminTgId = Number(import.meta.env.VITE_SUPER_ADMIN_TG_ID || '11111111');
@@ -172,6 +192,22 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
           .order('created_at', { ascending: false });
         if (error) throw error;
         setProfiles(data || []);
+      } else if (activeTab === 'testers') {
+        const [{ data: testerData, error: testerError }, { data: limitData, error: limitError }] = await Promise.all([
+          supabase
+            .from('karaoke_testers')
+            .select('*')
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('telegram_bot_settings')
+            .select('value')
+            .eq('key', 'karaoke_tester_limit')
+            .maybeSingle(),
+        ]);
+        if (testerError) throw testerError;
+        if (limitError) console.warn('Failed to fetch tester limit:', limitError);
+        setTesters((testerData || []) as KaraokeTester[]);
+        setTesterLimit(limitData?.value || '50');
       } else if (activeTab === 'songs') {
         const { data, error } = await supabase
           .from('songs')
@@ -250,6 +286,188 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
       fetchData();
     } catch (err: any) {
       alert(`Error updating role: ${err.message}`);
+    }
+  };
+
+  const calculateTesterUntil = (currentUntil?: string | null, days = testerDays) => {
+    const now = new Date();
+    const base = currentUntil && new Date(currentUntil).getTime() > now.getTime()
+      ? new Date(currentUntil)
+      : now;
+    base.setDate(base.getDate() + days);
+    return base.toISOString();
+  };
+
+  const refreshTesterData = () => {
+    fetchData();
+    fetchKpiStats();
+  };
+
+  const handleSaveTesterLimit = async () => {
+    const numericLimit = Number(testerLimit);
+    if (!Number.isFinite(numericLimit) || numericLimit < 1) {
+      alert('Tester limit must be a positive number');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('telegram_bot_settings')
+        .upsert({ key: 'karaoke_tester_limit', value: String(Math.floor(numericLimit)) });
+      if (error) throw error;
+      refreshTesterData();
+    } catch (err: any) {
+      alert(`Error saving tester limit: ${err.message}`);
+    }
+  };
+
+  const handleAddTester = async () => {
+    const telegramId = Number(newTesterTelegramId.trim());
+    if (!Number.isFinite(telegramId) || telegramId <= 0) {
+      alert('Enter a valid Telegram ID');
+      return;
+    }
+
+    const plusUntil = calculateTesterUntil(null, testerDays);
+
+    try {
+      const { error: testerError } = await supabase
+        .from('karaoke_testers')
+        .upsert({
+          telegram_id: telegramId,
+          username: newTesterUsername.trim() || null,
+          source: 'admin',
+          status: 'tester_active',
+          plus_started_at: new Date().toISOString(),
+          plus_until: plusUntil,
+          accepted_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'telegram_id' });
+      if (testerError) throw testerError;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, role, plus_until')
+        .eq('telegram_id', telegramId)
+        .maybeSingle();
+
+      if (profile) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({
+            role: profile.role === 'admin' ? 'admin' : 'pro',
+            plan: 'plus',
+            plus_until: calculateTesterUntil(profile.plus_until, testerDays),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', profile.id);
+        if (profileError) throw profileError;
+      }
+
+      setNewTesterTelegramId('');
+      setNewTesterUsername('');
+      refreshTesterData();
+    } catch (err: any) {
+      alert(`Error adding tester: ${err.message}`);
+    }
+  };
+
+  const handleExtendTester = async (tester: KaraokeTester, days = testerDays) => {
+    const plusUntil = calculateTesterUntil(tester.plus_until, days);
+
+    try {
+      const { error: testerError } = await supabase
+        .from('karaoke_testers')
+        .update({
+          status: 'tester_active',
+          plus_until: plusUntil,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', tester.id);
+      if (testerError) throw testerError;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, role, plus_until')
+        .eq('telegram_id', tester.telegram_id)
+        .maybeSingle();
+
+      if (profile) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({
+            role: profile.role === 'admin' ? 'admin' : 'pro',
+            plan: 'plus',
+            plus_until: calculateTesterUntil(profile.plus_until, days),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', profile.id);
+        if (profileError) throw profileError;
+      }
+
+      refreshTesterData();
+    } catch (err: any) {
+      alert(`Error extending tester: ${err.message}`);
+    }
+  };
+
+  const removeTesterAccess = async (tester: KaraokeTester) => {
+    try {
+      const { error: testerError } = await supabase
+        .from('karaoke_testers')
+        .update({
+          status: 'tester_expired',
+          plus_until: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', tester.id);
+      if (testerError) throw testerError;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('telegram_id', tester.telegram_id)
+        .maybeSingle();
+
+      if (profile && profile.role !== 'admin') {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({
+            role: 'free',
+            plan: 'free',
+            plus_until: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', profile.id);
+        if (profileError) throw profileError;
+      }
+
+      refreshTesterData();
+      return true;
+    } catch (err: any) {
+      alert(`Error removing tester access: ${err.message}`);
+      return false;
+    }
+  };
+
+  const handleDeactivateTester = async (tester: KaraokeTester) => {
+    if (!confirm('Remove tester access for this user?')) return;
+    await removeTesterAccess(tester);
+  };
+
+  const handleDeleteTester = async (tester: KaraokeTester) => {
+    if (!confirm('Delete tester record? Access will also be removed for non-admin profiles.')) return;
+    const accessRemoved = await removeTesterAccess(tester);
+    if (!accessRemoved) return;
+    try {
+      const { error } = await supabase
+        .from('karaoke_testers')
+        .delete()
+        .eq('id', tester.id);
+      if (error) throw error;
+      refreshTesterData();
+    } catch (err: any) {
+      alert(`Error deleting tester: ${err.message}`);
     }
   };
 
@@ -383,6 +601,31 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
     );
   };
 
+  const getFilteredTesters = () => {
+    const query = searchQuery.toLowerCase();
+    return testers.filter((tester) =>
+      tester.telegram_id?.toString().includes(query) ||
+      tester.username?.toLowerCase().includes(query) ||
+      tester.first_name?.toLowerCase().includes(query) ||
+      tester.status?.toLowerCase().includes(query)
+    );
+  };
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US');
+  };
+
+  const activeTesterCount = testers.filter((tester) =>
+    tester.status === 'tester_active' &&
+    tester.plus_until &&
+    new Date(tester.plus_until).getTime() > Date.now()
+  ).length;
+  const numericTesterLimit = Number(testerLimit) || 0;
+  const testerSeatsLeft = Math.max(numericTesterLimit - activeTesterCount, 0);
+
   const getFilteredSongs = () => {
     return songs.filter(s => 
       s.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -504,7 +747,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
             </div>
             <div>
               <h3 className="font-extrabold text-base tracking-tight">{dict.adminTitle}</h3>
-              <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
+              <p className="text-[10px] text-zinc-500 dark:text-zinc-300 font-bold uppercase tracking-wider">
                 Supabase V2 Controls
               </p>
             </div>
@@ -526,7 +769,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                 key={card.label}
                 className={`rounded-2xl border p-3 transition-all ${
                   theme === 'dark'
-                    ? 'border-zinc-800 bg-zinc-900/35'
+                    ? 'border-zinc-700 bg-zinc-900/75'
                     : 'border-zinc-200 bg-white'
                 }`}
               >
@@ -535,7 +778,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                   {kpiLoading && <RefreshCw size={12} className="animate-spin text-zinc-400" />}
                 </div>
                 <div className="text-lg font-black tabular-nums">{formatKpi(card.value)}</div>
-                <div className="mt-0.5 text-[9px] font-extrabold uppercase leading-tight tracking-wide text-zinc-400">
+                <div className="mt-0.5 text-[9px] font-extrabold uppercase leading-tight tracking-wide text-zinc-600 dark:text-zinc-300">
                   {card.label}
                 </div>
               </div>
@@ -544,17 +787,29 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Modal Tabs Navigation */}
-        <div className="flex border-b border-zinc-200 dark:border-zinc-900 p-2 gap-1 overflow-x-auto bg-zinc-100/50 dark:bg-zinc-950/50 shrink-0">
+        <div className="flex border-b border-zinc-200 dark:border-zinc-900 p-2 gap-1 overflow-x-auto bg-zinc-100/80 dark:bg-zinc-950 shrink-0">
           <button
             onClick={() => { setActiveTab('users'); setSearchQuery(''); }}
             className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'users'
                 ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
-                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                : 'text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white'
             }`}
           >
             <Users size={14} />
             {dict.adminTabUsers}
+          </button>
+
+          <button
+            onClick={() => { setActiveTab('testers'); setSearchQuery(''); }}
+            className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+              activeTab === 'testers'
+                ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
+                : 'text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white'
+            }`}
+          >
+            <UserPlus size={14} />
+            {language === 'ru' ? 'Testers' : 'Testers'}
           </button>
           
           <button
@@ -562,7 +817,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
             className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'songs'
                 ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
-                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                : 'text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white'
             }`}
           >
             <Music size={14} />
@@ -574,7 +829,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
             className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'published'
                 ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
-                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                : 'text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white'
             }`}
           >
             <Layers size={14} />
@@ -586,7 +841,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
             className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'stems'
                 ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
-                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                : 'text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white'
             }`}
           >
             <Cpu size={14} />
@@ -598,7 +853,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
             className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'feedback'
                 ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
-                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                : 'text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white'
             }`}
           >
             <MessageSquare size={14} />
@@ -615,7 +870,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
             className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'settings'
                 ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
-                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                : 'text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white'
             }`}
           >
             <Settings size={14} />
@@ -627,7 +882,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
             className={`flex-1 min-w-[118px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
               activeTab === 'logs'
                 ? 'bg-white dark:bg-zinc-900 text-red-500 dark:text-red-400 shadow-sm border border-zinc-200/10'
-                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                : 'text-zinc-700 hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white'
             }`}
           >
             <FileText size={14} />
@@ -638,13 +893,13 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
         {/* Filter bar */}
         <div className="p-4 border-b border-zinc-200 dark:border-zinc-900 flex gap-3 shrink-0">
           <div className="relative flex-1">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" size={14} />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 dark:text-zinc-300" size={14} />
             <input 
               type="text"
               placeholder={dict.adminSearchPlaceholder}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100/30 dark:bg-zinc-900/30 text-zinc-800 dark:text-zinc-100 focus:outline-none focus:border-red-500/50"
+              className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-100/30 dark:bg-zinc-900/60 text-zinc-800 dark:text-zinc-100 placeholder-zinc-500 dark:placeholder-zinc-300 focus:outline-none focus:border-red-500/50"
             />
           </div>
           <button 
@@ -653,7 +908,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
               fetchKpiStats();
             }}
             disabled={loading}
-            className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-500 disabled:opacity-50 transition-all flex items-center gap-1.5 font-semibold text-xs"
+            className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-300 disabled:opacity-50 transition-all flex items-center gap-1.5 font-semibold text-xs"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
@@ -749,6 +1004,177 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ isOpen, onClos
                       )}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* Tab Testers */}
+              {activeTab === 'testers' && (
+                <div className="flex flex-col gap-4">
+                  <div className={`grid gap-3 rounded-2xl border p-4 ${
+                    theme === 'dark' ? 'border-zinc-700 bg-zinc-900/45' : 'border-zinc-200 bg-zinc-50'
+                  } lg:grid-cols-[1.1fr_0.9fr]`}>
+                    <div>
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        <div className={`rounded-2xl border px-4 py-3 ${
+                          theme === 'dark' ? 'border-zinc-700 bg-zinc-950/70' : 'border-zinc-200 bg-white'
+                        }`}>
+                          <div className="text-lg font-black">{activeTesterCount} / {numericTesterLimit || '-'}</div>
+                          <div className="text-[9px] font-extrabold uppercase text-zinc-600 dark:text-zinc-300">Active testers</div>
+                        </div>
+                        <div className={`rounded-2xl border px-4 py-3 ${
+                          theme === 'dark' ? 'border-zinc-700 bg-zinc-950/70' : 'border-zinc-200 bg-white'
+                        }`}>
+                          <div className="text-lg font-black">{testerSeatsLeft}</div>
+                          <div className="text-[9px] font-extrabold uppercase text-zinc-600 dark:text-zinc-300">Seats left</div>
+                        </div>
+                        <div className={`rounded-2xl border px-4 py-3 ${
+                          theme === 'dark' ? 'border-zinc-700 bg-zinc-950/70' : 'border-zinc-200 bg-white'
+                        }`}>
+                          <div className="text-lg font-black">{testers.reduce((sum, tester) => sum + (tester.feedback_count || 0), 0)}</div>
+                          <div className="text-[9px] font-extrabold uppercase text-zinc-600 dark:text-zinc-300">Feedback</div>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input
+                          value={newTesterTelegramId}
+                          onChange={(event) => setNewTesterTelegramId(event.target.value)}
+                          placeholder="Telegram ID"
+                          className={`min-w-0 flex-1 rounded-xl border px-3 py-2 text-xs outline-none focus:border-red-500/50 ${
+                            theme === 'dark' ? 'border-zinc-700 bg-zinc-950 text-zinc-100 placeholder-zinc-300' : 'border-zinc-200 bg-white text-zinc-900 placeholder-zinc-400'
+                          }`}
+                        />
+                        <input
+                          value={newTesterUsername}
+                          onChange={(event) => setNewTesterUsername(event.target.value)}
+                          placeholder="Username optional"
+                          className={`min-w-0 flex-1 rounded-xl border px-3 py-2 text-xs outline-none focus:border-red-500/50 ${
+                            theme === 'dark' ? 'border-zinc-700 bg-zinc-950 text-zinc-100 placeholder-zinc-300' : 'border-zinc-200 bg-white text-zinc-900 placeholder-zinc-400'
+                          }`}
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          value={testerDays}
+                          onChange={(event) => setTesterDays(Math.max(1, Number(event.target.value) || 30))}
+                          className={`w-24 rounded-xl border px-3 py-2 text-xs outline-none focus:border-red-500/50 ${
+                            theme === 'dark' ? 'border-zinc-700 bg-zinc-950 text-zinc-100 placeholder-zinc-300' : 'border-zinc-200 bg-white text-zinc-900 placeholder-zinc-400'
+                          }`}
+                          title="Days"
+                        />
+                        <button
+                          onClick={handleAddTester}
+                          className="rounded-xl bg-red-500 px-4 py-2 text-xs font-extrabold text-white transition-all hover:bg-red-600 active:scale-95"
+                        >
+                          Add tester
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col justify-end gap-2">
+                      <label className="text-[10px] font-extrabold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
+                        Tester limit
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          value={testerLimit}
+                          onChange={(event) => setTesterLimit(event.target.value)}
+                          className={`min-w-0 flex-1 rounded-xl border px-3 py-2 text-xs outline-none focus:border-red-500/50 ${
+                            theme === 'dark' ? 'border-zinc-700 bg-zinc-950 text-zinc-100 placeholder-zinc-300' : 'border-zinc-200 bg-white text-zinc-900 placeholder-zinc-400'
+                          }`}
+                        />
+                        <button
+                          onClick={handleSaveTesterLimit}
+                          className="rounded-xl border border-emerald-500/30 px-4 py-2 text-xs font-extrabold text-emerald-500 transition-all hover:bg-emerald-500/10 active:scale-95"
+                        >
+                          Save
+                        </button>
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+                        Stored in telegram_bot_settings as karaoke_tester_limit.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 uppercase tracking-wider font-bold text-[10px]">
+                          <th className="py-2.5 px-3">Tester</th>
+                          <th className="py-2.5 px-3">Status</th>
+                          <th className="py-2.5 px-3">Plus until</th>
+                          <th className="py-2.5 px-3">Feedback</th>
+                          <th className="py-2.5 px-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {getFilteredTesters().map((tester) => {
+                          const isActive = tester.status === 'tester_active' && tester.plus_until && new Date(tester.plus_until).getTime() > Date.now();
+                          const statusClass = isActive
+                            ? 'bg-emerald-500/10 text-emerald-500'
+                            : tester.status === 'tester_waitlist'
+                              ? 'bg-amber-500/10 text-amber-500'
+                              : 'bg-zinc-500/10 text-zinc-500';
+
+                          return (
+                            <tr key={tester.id} className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-100/20 dark:hover:bg-zinc-900/35">
+                              <td className="py-3 px-3">
+                                <p className="font-bold text-zinc-800 dark:text-zinc-200">
+                                  {tester.username ? `@${tester.username}` : tester.first_name || 'No username'}
+                                </p>
+                                <p className="font-mono text-[10px] text-zinc-600 dark:text-zinc-300">TG: {tester.telegram_id}</p>
+                                <p className="text-[9px] text-zinc-600 dark:text-zinc-400">Source: {tester.source || '-'}</p>
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className={`rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase ${statusClass}`}>
+                                  {tester.status}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3">
+                                <div className="flex items-center gap-1 font-mono text-[10px] text-zinc-600 dark:text-zinc-300">
+                                  <Clock size={12} />
+                                  {formatDateTime(tester.plus_until)}
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 font-mono font-bold text-violet-500">
+                                {tester.feedback_count || 0}
+                              </td>
+                              <td className="py-3 px-3 text-right">
+                                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleExtendTester(tester)}
+                                    className="px-2 py-1 text-[10px] font-bold rounded-lg border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+                                  >
+                                    +{testerDays}d
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeactivateTester(tester)}
+                                    className="px-2 py-1 text-[10px] font-bold rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
+                                  >
+                                    <UserX size={12} className="inline" /> Off
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTester(tester)}
+                                    className="p-1.5 text-zinc-500 dark:text-zinc-300 hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {getFilteredTesters().length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="py-10 text-center text-zinc-500 dark:text-zinc-500 font-bold">
+                              {dict.searchNoResults}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 

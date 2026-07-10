@@ -74,7 +74,8 @@ export interface UserProfile {
   avatar_url: string | null;
   telegram_id: number;
   role: 'free' | 'pro' | 'admin';
+  plan?: 'free' | 'plus' | string | null;
+  plus_until?: string | null;
   created_at: string;
   updated_at: string;
 }
-

@@ -121,7 +121,21 @@ async function sendTelegramMessage(chatId: number, text: string, botToken: strin
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      console.error('Failed to send Telegram message:', await response.text());
+      const errorText = await response.text();
+      console.error('Failed to send Telegram message:', errorText);
+
+      if (payload.parse_mode && /parse entities|can't parse/i.test(errorText)) {
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload.parse_mode;
+        const fallbackResponse = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fallbackPayload),
+        });
+        if (!fallbackResponse.ok) {
+          console.error('Failed to send Telegram fallback message:', await fallbackResponse.text());
+        }
+      }
     }
   } catch (err) {
     console.error('Error sending Telegram message:', err);
@@ -784,22 +798,44 @@ Deno.serve(async (req) => {
         }
 
         // Сценарий 2: Глубокая ссылка авторизации
-        if (text.startsWith('/start auth_')) {
-          const sessionId = text.replace('/start auth_', '').trim();
+        const authStartMatch = text.match(/^\/start(?:@\w+)?\s+auth_([0-9a-f-]{36})/i);
+        if (authStartMatch) {
+          const sessionId = authStartMatch[1];
           // Ищем сессию в БД
           const { data: sessionData, error: sessionError } = await supabaseAdmin
             .from('telegram_auth_sessions')
             .select('*')
             .eq('id', sessionId)
-            .single();
+            .maybeSingle();
 
           if (sessionError || !sessionData) {
+            try {
+              await supabaseAdmin.from('telegram_bot_debug_logs').insert({
+                payload: {
+                  event: 'auth_deeplink_session_missing',
+                  session_id: sessionId,
+                  telegram_id: fromUser.id,
+                  username: fromUser.username || null,
+                  error: sessionError?.message || null,
+                  text,
+                }
+              });
+            } catch (e) {
+              console.error('Failed to log missing auth session:', e);
+            }
+            await sendTelegramMessage(
+              chatId,
+              '⚠️ Ссылка авторизации уже использована или устарела. Вернитесь на сайт и нажмите «Войти через Telegram» еще раз.',
+              botToken,
+              defaultKeyboard
+            );
             return new Response('Session already processed or missing', { status: 200 });
           }
 
           const email = `${fromUser.id}@telegram.lrcmaker`;
           const password = await generateDeterministicPassword(fromUser.id.toString(), botToken);
           const username = fromUser.username || fromUser.first_name || `tg_${fromUser.id}`;
+          const safeUsername = escapeMarkdown(username);
           const avatarUrl = null;
 
           let userId: string;
@@ -863,7 +899,7 @@ Deno.serve(async (req) => {
           // Отправляем успешный статус пользователю в Telegram со ссылкой на сайт
           await sendTelegramMessage(
             chatId,
-            `🎉 *Авторизация успешна!*\n\nВы вошли в систему:\n👤 *Имя*: ${username}\n🆔 *ID*: ${fromUser.id}\n\n👉 Возвращайтесь на вкладку браузера или откройте сайт по ссылке ниже:\n🔗 ${APP_URL}`,
+            `🎉 *Авторизация успешна!*\n\nВы вошли в систему:\n👤 *Имя*: ${safeUsername}\n🆔 *ID*: ${fromUser.id}\n\n👉 Возвращайтесь на вкладку браузера или откройте сайт по ссылке ниже:\n🔗 ${APP_URL}`,
             botToken,
             defaultKeyboard
           );
