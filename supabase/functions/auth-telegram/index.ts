@@ -703,9 +703,10 @@ Deno.serve(async (req) => {
 
           if (!checkError && existingShare) {
             const trackLabel = artist && title ? `«${artist} — ${title}»` : `«${fileName}»`;
+            const safeTrackLabel = escapeMarkdown(trackLabel);
             await sendTelegramMessage(
               chatId,
-              `🎵 *Этот трек уже был импортирован ранее!*\n*Название*: ${trackLabel}\n\nОн готов к работе и ждет вас в списке импорта из Telegram на сайте.\n🔗 ${APP_URL}`,
+              `🎵 *Этот трек уже есть в Karaoke LRC Maker*\n*Трек*: ${safeTrackLabel}\n\nОн уже ждет вас на сайте в импорте из Telegram.\n\nЧто можно сделать дальше:\n1️⃣ Открыть сайт\n2️⃣ Нажать *«Импортировать из Telegram»*\n3️⃣ Выбрать этот трек и собрать караоке\n\n🔗 ${APP_URL}`,
               botToken,
               defaultKeyboard
             );
@@ -732,9 +733,10 @@ Deno.serve(async (req) => {
         }
 
         const trackLabel = artist && title ? `«${artist} — ${title}»` : `«${fileName}»`;
+        const safeTrackLabel = escapeMarkdown(trackLabel);
         await sendTelegramMessage(
           chatId,
-          `🎵 *Трек успешно получен!*\n*Название*: ${trackLabel}\n\nТеперь вы можете загрузить его на сайте:\n1️⃣ Откройте [сайт](${APP_URL}).\n2️⃣ В разделе выбора музыки нажмите *«Импортировать из Telegram»*.\n3️⃣ Выберите этот трек в списке для мгновенной загрузки! 🚀`,
+          `🎵 *Трек получен!*\n*Трек*: ${safeTrackLabel}\n\nЯ сохранил его для Karaoke LRC Maker.\nТеперь можно открыть сайт и сделать из него караоке:\n\n1️⃣ Откройте сайт\n2️⃣ Нажмите *«Импортировать из Telegram»*\n3️⃣ Выберите этот трек в списке\n4️⃣ Подтяните текст, поправьте тайминги и экспортируйте видео\n\n🔗 ${APP_URL}`,
           botToken,
           defaultKeyboard
         );
