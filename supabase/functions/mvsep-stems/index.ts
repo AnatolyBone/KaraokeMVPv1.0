@@ -25,6 +25,42 @@ function isPremiumProfile(profile: any) {
   return false;
 }
 
+function normalizeMvsepToken(rawToken: string) {
+  return rawToken
+    .trim()
+    .replace(/^[`"']+|[`"']+$/g, '')
+    .replace(/^\*+|\*+$/g, '')
+    .trim();
+}
+
+function getTokenDebugInfo(rawToken: string, token: string) {
+  return {
+    rawLength: rawToken.length,
+    tokenLength: token.length,
+    hadWhitespace: rawToken !== rawToken.trim(),
+    hadMarkdownStars: rawToken.trim().startsWith('*') || rawToken.trim().endsWith('*'),
+    hadQuotes: /^[`"']|[`"']$/.test(rawToken.trim()),
+    isAlnum: /^[a-z0-9]+$/i.test(token),
+  };
+}
+
+function stringifySafe(value: unknown) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function parseJsonSafe(text: string) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 async function getAuthedUser(req: Request, supabaseUrl: string, anonKey: string, serviceKey: string) {
   const authHeader = req.headers.get('Authorization') || '';
   const token = authHeader.replace(/^Bearer\s+/i, '');
@@ -74,7 +110,7 @@ async function countActiveJobs(adminClient: any) {
 
 function pickMvsepStatus(result: any) {
   const status = result?.status || result?.data?.status || null;
-  return typeof status === 'string' ? status : null;
+  return typeof status === 'string' ? status.toLowerCase() : null;
 }
 
 function pickResultFiles(result: any) {
@@ -82,7 +118,7 @@ function pickResultFiles(result: any) {
   return Array.isArray(files) ? files : [];
 }
 
-async function submitJobToMvsep(adminClient: any, job: any, mvsepToken: string) {
+async function submitJobToMvsep(adminClient: any, job: any, mvsepToken: string, tokenDebug: any) {
   const { data: inputFile, error: downloadError } = await adminClient.storage
     .from('stem_inputs')
     .download(job.input_storage_path);
@@ -97,11 +133,32 @@ async function submitJobToMvsep(adminClient: any, job: any, mvsepToken: string) 
   form.append('is_demo', '0');
 
   const response = await fetch(MVSEP_CREATE_URL, { method: 'POST', body: form });
-  const result = await response.json().catch(() => null);
+  const responseText = await response.text();
+  const result = parseJsonSafe(responseText);
+
+  console.log('MVSEP create response', {
+    jobId: job.id,
+    responseStatus: response.status,
+    ok: response.ok,
+    success: result?.success,
+    message: result?.data?.message || result?.message || null,
+    tokenDebug,
+  });
 
   if (!response.ok || !result?.success) {
     const message = result?.data?.message || result?.message || `MVSEP create failed (${response.status})`;
-    throw new Error(message);
+    const debugMessage = [
+      message,
+      `responseStatus=${response.status}`,
+      `tokenLength=${tokenDebug.tokenLength}`,
+      `rawLength=${tokenDebug.rawLength}`,
+      `hadWhitespace=${tokenDebug.hadWhitespace}`,
+      `hadMarkdownStars=${tokenDebug.hadMarkdownStars}`,
+      `hadQuotes=${tokenDebug.hadQuotes}`,
+      `isAlnum=${tokenDebug.isAlnum}`,
+      `response=${stringifySafe(result || responseText).slice(0, 500)}`,
+    ].join(' | ');
+    throw new Error(debugMessage);
   }
 
   const hash = result?.data?.hash;
@@ -123,7 +180,7 @@ async function submitJobToMvsep(adminClient: any, job: any, mvsepToken: string) 
   return { hash, link: result?.data?.link || null };
 }
 
-async function maybeStartQueuedJobs(adminClient: any, mvsepToken: string) {
+async function maybeStartQueuedJobs(adminClient: any, mvsepToken: string, tokenDebug: any) {
   const limit = await getConcurrencyLimit(adminClient);
   const activeCount = await countActiveJobs(adminClient);
   const slots = Math.max(limit - activeCount, 0);
@@ -152,7 +209,7 @@ async function maybeStartQueuedJobs(adminClient: any, mvsepToken: string) {
     if (lockError || !lockedJob) continue;
 
     try {
-      await submitJobToMvsep(adminClient, lockedJob, mvsepToken);
+      await submitJobToMvsep(adminClient, lockedJob, mvsepToken, tokenDebug);
       started += 1;
     } catch (err) {
       console.error('MVSEP submit failed:', err);
@@ -175,10 +232,18 @@ async function refreshJob(adminClient: any, job: any, mvsepToken: string) {
   const url = new URL(MVSEP_GET_URL);
   url.searchParams.set('hash', job.provider_job_hash);
 
-  const response = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${mvsepToken}` },
+  const response = await fetch(url.toString());
+  const responseText = await response.text();
+  const result = parseJsonSafe(responseText);
+
+  console.log('MVSEP refresh response', {
+    jobId: job.id,
+    responseStatus: response.status,
+    ok: response.ok,
+    success: result?.success,
+    status: result?.status || result?.data?.status || null,
+    filesCount: pickResultFiles(result).length,
   });
-  const result = await response.json().catch(() => null);
 
   if (!response.ok || result?.success === false) {
     const message = result?.data?.message || result?.message || `MVSEP status failed (${response.status})`;
@@ -228,7 +293,9 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-  const mvsepToken = Deno.env.get('MVSEP_API_TOKEN') || '';
+  const rawMvsepToken = Deno.env.get('MVSEP_API_TOKEN') || '';
+  const mvsepToken = normalizeMvsepToken(rawMvsepToken);
+  const tokenDebug = getTokenDebugInfo(rawMvsepToken, mvsepToken);
 
   if (!supabaseUrl || !anonKey || !serviceKey) {
     return json({ success: false, error: 'Supabase function is not configured' }, 500);
@@ -283,7 +350,7 @@ Deno.serve(async (req) => {
 
       if (insertError) throw insertError;
 
-      const queue = await maybeStartQueuedJobs(adminClient, mvsepToken);
+      const queue = await maybeStartQueuedJobs(adminClient, mvsepToken, tokenDebug);
       const { data: freshJob } = await adminClient
         .from('song_stems')
         .select('*')
@@ -308,13 +375,13 @@ Deno.serve(async (req) => {
       if (!job) return json({ success: false, error: 'Job not found' }, 404);
 
       const refreshedJob = await refreshJob(adminClient, job, mvsepToken);
-      const queue = await maybeStartQueuedJobs(adminClient, mvsepToken);
+      const queue = await maybeStartQueuedJobs(adminClient, mvsepToken, tokenDebug);
       return json({ success: true, job: refreshedJob, queue });
     }
 
     if (action === 'pump') {
       if (profile.role !== 'admin') return json({ success: false, error: 'Admin only' }, 403);
-      const queue = await maybeStartQueuedJobs(adminClient, mvsepToken);
+      const queue = await maybeStartQueuedJobs(adminClient, mvsepToken, tokenDebug);
       return json({ success: true, queue });
     }
 

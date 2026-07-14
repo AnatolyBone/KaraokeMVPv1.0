@@ -82,6 +82,26 @@ function parseAutoSearchMetadata(audioFileName: string, metadata: {
   };
 }
 
+function getStemFileLabel(file: any, language: string) {
+  const type = String(file?.type || '').toLowerCase();
+  if (type.includes('vocal')) return language === 'ru' ? 'Вокал' : 'Vocals';
+  if (type.includes('other') || type.includes('instrumental')) return language === 'ru' ? 'Минус' : 'Instrumental';
+  return file?.type || (language === 'ru' ? 'Файл' : 'File');
+}
+
+function findInstrumentalStemFile(files: any[]) {
+  return files.find((file) => {
+    const type = String(file?.type || '').toLowerCase();
+    return type.includes('other') || type.includes('instrumental');
+  }) || null;
+}
+
+function getStemDownloadName(file: any, fallback: string) {
+  return String(file?.download || fallback || 'karaoke-instrumental.mp3')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .trim();
+}
+
 function pickBestAutoSearchResult(
   results: LyricsProviderResult[],
   title: string,
@@ -144,6 +164,7 @@ export const AudioLoader: React.FC = () => {
     language,
     setTrackMetadata,
     trackMetadata,
+    currentProjectTitle,
     setCurrentProjectTitle,
     setStep,
     rawText,
@@ -595,6 +616,38 @@ export const AudioLoader: React.FC = () => {
     }
   };
 
+  const useMvsepInstrumental = async () => {
+    const instrumentalFile = findInstrumentalStemFile(stemJob?.result_files || []);
+    if (!instrumentalFile?.url) {
+      alert(language === 'ru' ? 'Минус пока не готов' : 'Instrumental is not ready yet');
+      return;
+    }
+
+    setStemBusy(true);
+    try {
+      const response = await fetch(instrumentalFile.url);
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+
+      const blob = await response.blob();
+      const fileName = getStemDownloadName(
+        instrumentalFile,
+        `${(audioFileName || 'karaoke').replace(/\.[^/.]+$/, '')}-instrumental.mp3`
+      );
+      const file = new File([blob], fileName, { type: blob.type || 'audio/mpeg' });
+      const url = URL.createObjectURL(file);
+      const titleBeforeReplace = currentProjectTitle;
+
+      setAudio(url, file.name);
+      setTrackMetadata(null);
+      await saveAudioToDB(file);
+      if (titleBeforeReplace) setCurrentProjectTitle(titleBeforeReplace);
+    } catch (err: any) {
+      alert(err.message || (language === 'ru' ? 'Не удалось подставить минус' : 'Could not use the instrumental'));
+    } finally {
+      setStemBusy(false);
+    }
+  };
+
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -947,6 +1000,41 @@ export const AudioLoader: React.FC = () => {
                     >
                       {language === 'ru' ? 'Открыть задачу MVSEP' : 'Open MVSEP job'}
                     </a>
+                  )}
+                  {Array.isArray(stemJob?.result_files) && stemJob.result_files.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {stemJob.result_files.map((file: any, index: number) => (
+                        <a
+                          key={`${file?.url || file?.download || index}`}
+                          href={file?.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`inline-flex items-center justify-center rounded-lg border px-2.5 py-1.5 text-[10px] font-black transition-all ${
+                            theme === 'dark'
+                              ? 'border-cyan-400/25 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/15'
+                              : 'border-cyan-200 bg-white/70 text-cyan-700 hover:bg-white'
+                          }`}
+                        >
+                          {getStemFileLabel(file, language)}
+                          {file?.size ? ` · ${file.size}` : ''}
+                        </a>
+                      ))}
+                      {findInstrumentalStemFile(stemJob.result_files) && (
+                        <button
+                          type="button"
+                          onClick={useMvsepInstrumental}
+                          disabled={stemBusy}
+                          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-black transition-all disabled:opacity-50 ${
+                            theme === 'dark'
+                              ? 'bg-emerald-400/15 text-emerald-200 hover:bg-emerald-400/20'
+                              : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                          }`}
+                        >
+                          {stemBusy && <Loader2 size={11} className="animate-spin" />}
+                          {language === 'ru' ? 'Использовать минус' : 'Use instrumental'}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
