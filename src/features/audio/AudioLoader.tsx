@@ -9,7 +9,7 @@ import { localization } from '../../utils/localization';
 import { LyricsSearchModal } from '../../components/LyricsSearchModal';
 import { searchAllLyrics, LyricsProviderResult } from '../../services/lyricsProvider';
 import { parseLRC } from '../../utils/lrc';
-import { Upload, Trash2, Music, RefreshCw, Search, Smartphone, Loader2, Play, Pause } from 'lucide-react';
+import { Upload, Trash2, Music, RefreshCw, Search, Smartphone, Loader2, Play, Pause, Wand2 } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { formatTime } from '../../utils/time';
 import { trackAppEvent } from '../../utils/analytics';
@@ -160,6 +160,8 @@ export const AudioLoader: React.FC = () => {
   const [playerTime, setPlayerTime] = useState(0);
   const [playerDuration, setPlayerDuration] = useState(0);
   const [playerPlaying, setPlayerPlaying] = useState(false);
+  const [stemJob, setStemJob] = useState<any | null>(null);
+  const [stemBusy, setStemBusy] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -169,6 +171,11 @@ export const AudioLoader: React.FC = () => {
   const [lyricsSearchStatus, setLyricsSearchStatus] = useState<'idle' | 'searching' | 'found' | 'not_found'>('idle');
 
   const dict = localization[language];
+  const canUseMvsep = !!user && (
+    userProfile?.role === 'admin' ||
+    userProfile?.role === 'pro' ||
+    (userProfile?.plan === 'plus' && !!userProfile?.plus_until && new Date(userProfile.plus_until).getTime() > Date.now())
+  );
 
   useEffect(() => {
     if (!audioUrl && audioFileName) {
@@ -515,6 +522,79 @@ export const AudioLoader: React.FC = () => {
     }
   };
 
+  const getCurrentAudioFile = async (): Promise<File | null> => {
+    if (!audioUrl || !audioFileName) return null;
+    const cachedFile = await loadAudioFromDB().catch(() => null);
+    if (cachedFile) return cachedFile;
+
+    const blob = audioUrl.startsWith('blob:')
+      ? await blobUrlToBlob(audioUrl)
+      : await fetch(audioUrl).then((response) => response.blob()).catch(() => null);
+
+    if (!blob) return null;
+    return new File([blob], audioFileName, { type: blob.type || 'audio/mpeg' });
+  };
+
+  const createMvsepJob = async () => {
+    if (!canUseMvsep) {
+      alert(language === 'ru' ? 'Разделение доступно только Plus/Pro пользователям.' : 'Stem separation is available for Plus/Pro users only.');
+      return;
+    }
+
+    setStemBusy(true);
+    try {
+      const file = await getCurrentAudioFile();
+      if (!file) throw new Error(language === 'ru' ? 'Не удалось прочитать текущий аудиофайл' : 'Could not read the current audio file');
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error(language === 'ru' ? 'Нужно войти через Telegram' : 'Please sign in first');
+
+      const formData = new FormData();
+      formData.append('audiofile', file);
+      formData.append('sep_type', '40');
+      formData.append('output_format', '0');
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mvsep-stems?action=create`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'MVSEP job failed');
+      setStemJob(result.job);
+    } catch (err: any) {
+      alert(err.message || (language === 'ru' ? 'Не удалось создать задачу MVSEP' : 'Could not create MVSEP job'));
+    } finally {
+      setStemBusy(false);
+    }
+  };
+
+  const refreshMvsepJob = async () => {
+    if (!stemJob?.id) return;
+    setStemBusy(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error(language === 'ru' ? 'Нужно войти через Telegram' : 'Please sign in first');
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mvsep-stems?action=refresh&job_id=${encodeURIComponent(stemJob.id)}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'MVSEP refresh failed');
+      setStemJob(result.job);
+    } catch (err: any) {
+      alert(err.message || (language === 'ru' ? 'Не удалось обновить статус MVSEP' : 'Could not refresh MVSEP job'));
+    } finally {
+      setStemBusy(false);
+    }
+  };
+
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -835,6 +915,66 @@ export const AudioLoader: React.FC = () => {
             </span>
 
           </div>
+
+          {canUseMvsep && (
+            <div className={`mt-3 rounded-2xl border p-3 ${
+              theme === 'dark'
+                ? 'border-cyan-500/20 bg-cyan-500/10 text-zinc-200'
+                : 'border-cyan-200 bg-cyan-50/70 text-zinc-700'
+            }`}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-xs font-black text-cyan-600 dark:text-cyan-300">
+                    <Wand2 size={14} />
+                    <span>{language === 'ru' ? 'Минус для караоке через MVSEP' : 'Karaoke instrumental via MVSEP'}</span>
+                  </p>
+                  <p className="mt-1 text-[10px] font-semibold leading-relaxed text-zinc-600 dark:text-zinc-400">
+                    {stemJob
+                      ? `${language === 'ru' ? 'Статус' : 'Status'}: ${stemJob.status}${stemJob.mvsep_status ? ` / ${stemJob.mvsep_status}` : ''}`
+                      : (language === 'ru'
+                        ? 'MP3 320, очередь на сервере. Пока MVSEP free — активна одна задача одновременно.'
+                        : 'MP3 320, server-side queue. While MVSEP is free, only one job runs at a time.')}
+                  </p>
+                  {stemJob?.error_message && (
+                    <p className="mt-1 text-[10px] font-semibold text-red-500">{stemJob.error_message}</p>
+                  )}
+                  {stemJob?.provider_job_url && (
+                    <a
+                      href={stemJob.provider_job_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-flex text-[10px] font-bold text-cyan-600 underline-offset-2 hover:underline dark:text-cyan-300"
+                    >
+                      {language === 'ru' ? 'Открыть задачу MVSEP' : 'Open MVSEP job'}
+                    </a>
+                  )}
+                </div>
+
+                <div className="flex shrink-0 gap-2">
+                  {stemJob?.id && !['completed', 'failed', 'cancelled'].includes(stemJob.status) && (
+                    <button
+                      type="button"
+                      onClick={refreshMvsepJob}
+                      disabled={stemBusy}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-500/25 px-3 py-2 text-xs font-black text-cyan-600 transition-all hover:bg-cyan-500/10 disabled:opacity-50 dark:text-cyan-300"
+                    >
+                      {stemBusy && <Loader2 size={13} className="animate-spin" />}
+                      {language === 'ru' ? 'Обновить' : 'Refresh'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={createMvsepJob}
+                    disabled={stemBusy}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-500 px-3 py-2 text-xs font-black text-white shadow-md shadow-cyan-500/20 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50"
+                  >
+                    {stemBusy ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
+                    {stemJob ? (language === 'ru' ? 'Новая задача' : 'New job') : (language === 'ru' ? 'Сделать минус' : 'Create instrumental')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <audio
             ref={(el) => {
