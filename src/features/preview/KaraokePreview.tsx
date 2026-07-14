@@ -19,6 +19,7 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
   const listRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
+  const isScrubbingRef = useRef(false);
 
   const dict = localization[language];
   const secLabel = language === 'ru' ? 'сек' : 'sec';
@@ -167,14 +168,34 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
     }
   };
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const seekFromClientX = (clientX: number, target: HTMLDivElement) => {
     const audio = audioRef.current;
     if (!audio || !audio.duration) return;
-    
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickPercent = clickX / rect.width;
-    audio.currentTime = clickPercent * audio.duration;
+
+    const rect = target.getBoundingClientRect();
+    const clickX = Math.min(Math.max(clientX - rect.left, 0), rect.width);
+    const clickPercent = rect.width > 0 ? clickX / rect.width : 0;
+    const nextTime = clickPercent * audio.duration;
+    audio.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  };
+
+  const handleProgressPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    isScrubbingRef.current = true;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    seekFromClientX(e.clientX, e.currentTarget);
+  };
+
+  const handleProgressPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isScrubbingRef.current) return;
+    seekFromClientX(e.clientX, e.currentTarget);
+  };
+
+  const handleProgressPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isScrubbingRef.current) return;
+    isScrubbingRef.current = false;
+    seekFromClientX(e.clientX, e.currentTarget);
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
   };
 
   const toggleFullscreen = () => {
@@ -222,8 +243,8 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
       <div
         ref={stageRef}
         className={isPlayerFullscreen
-          ? "fixed inset-0 z-50 pt-[calc(2rem+env(safe-area-inset-top))] pb-[calc(2.5rem+env(safe-area-inset-bottom))] px-6 flex flex-col justify-between bg-zinc-950 text-zinc-100 select-none"
-          : `relative overflow-hidden rounded-2xl border p-8 flex flex-col justify-between min-h-[340px] transition-all shadow-lg select-none ${
+          ? "fixed inset-0 z-50 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1.25rem+env(safe-area-inset-bottom))] px-4 sm:px-6 flex flex-col justify-between bg-zinc-950 text-zinc-100 select-none"
+          : `relative overflow-hidden rounded-2xl border p-5 sm:p-8 flex flex-col justify-between min-h-[300px] sm:min-h-[340px] transition-all shadow-lg select-none ${
               theme === 'dark'
                 ? 'bg-zinc-950 border-zinc-800 text-zinc-100'
                 : 'bg-white border-zinc-200 text-zinc-900'
@@ -238,23 +259,31 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
         <div className={`absolute bottom-0 left-0 right-0 ${isPlayerFullscreen ? 'h-32' : 'h-16'} bg-gradient-to-t ${gradientColorClass} to-transparent pointer-events-none z-25`} />
 
         {/* Header info */}
-        <div className="flex justify-between items-center text-xs font-medium text-zinc-400 z-20">
+        <div className={`flex justify-between items-center gap-2 text-xs font-medium z-20 ${
+          isPlayerFullscreen ? 'text-white/75' : 'text-zinc-400'
+        }`}>
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full bg-green-500 animate-ping" />
             {dict.livePlayerLabel}
           </span>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               onClick={toggleFullscreen}
-              className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-zinc-500/10 text-zinc-500 hover:text-zinc-200 transition-all text-[10px] font-bold uppercase tracking-wider cursor-pointer"
+              className={`flex items-center gap-1 p-2 rounded-lg transition-all text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
+                isPlayerFullscreen
+                  ? 'bg-white/10 text-white/85 hover:bg-white/15 hover:text-white'
+                  : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-500/10 dark:hover:text-zinc-200'
+              }`}
               title={dict.fullscreenLabel}
             >
               {isPlayerFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
               <span className="hidden sm:inline">{dict.fullscreenLabel}</span>
             </button>
             
-            <span className="font-mono text-xs">
+            <span className={`font-mono text-[11px] sm:text-xs tabular-nums ${
+              isPlayerFullscreen ? 'text-white/80' : ''
+            }`}>
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
           </div>
@@ -268,13 +297,13 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
         ) : (
           <div 
             className="relative overflow-hidden flex items-center justify-center w-full z-10 my-auto transition-all"
-            style={{ height: `${(isPlayerFullscreen ? 130 : 72) * 3}px` }}
+            style={{ height: `${(isPlayerFullscreen ? 112 : 72) * 3}px` }}
           >
             <div 
               className="absolute flex flex-col items-center w-full transition-transform duration-[220ms] ease-out"
               style={{ 
-                transform: `translateY(-${activeIdxInTimed * (isPlayerFullscreen ? 130 : 72)}px)`,
-                top: `calc(50% - ${(isPlayerFullscreen ? 130 : 72) / 2}px)`
+                transform: `translateY(-${activeIdxInTimed * (isPlayerFullscreen ? 112 : 72)}px)`,
+                top: `calc(50% - ${(isPlayerFullscreen ? 112 : 72) / 2}px)`
               }}
             >
               {timedLines.map((line, idx) => {
@@ -301,7 +330,7 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
                     : "opacity-15 scale-85 z-0 text-zinc-500";
                 }
 
-                const currentLineHeight = isPlayerFullscreen ? 130 : 72;
+                const currentLineHeight = isPlayerFullscreen ? 112 : 72;
 
                 return (
                   <div
@@ -380,21 +409,40 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
         )}
 
         {/* Player Bar overlay */}
-        <div className="z-20 pt-4 flex items-center gap-4">
+        <div className="z-20 pt-4 flex items-center gap-3 sm:gap-4">
           <button
             onClick={togglePlay}
-            className="p-2.5 rounded-xl bg-violet-600 text-white hover:bg-violet-700 active:scale-95 transition-all flex items-center justify-center shrink-0 shadow-md shadow-violet-600/15 cursor-pointer"
+            className={`rounded-xl text-white active:scale-95 transition-all flex items-center justify-center shrink-0 cursor-pointer ${
+              isPlayerFullscreen
+                ? 'p-3 bg-white/15 hover:bg-white/20 shadow-lg shadow-black/20'
+                : 'p-2.5 bg-violet-600 hover:bg-violet-700 shadow-md shadow-violet-600/15'
+            }`}
           >
             {isPlaying ? <Pause size={18} /> : <Play size={18} />}
           </button>
 
           <div
-            onClick={handleProgressClick}
-            className="h-3 flex-1 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/20 dark:border-zinc-800/20 rounded-full cursor-pointer overflow-hidden relative group"
+            onPointerDown={handleProgressPointerDown}
+            onPointerMove={handleProgressPointerMove}
+            onPointerUp={handleProgressPointerUp}
+            onPointerCancel={handleProgressPointerUp}
+            className={`h-6 sm:h-5 flex-1 rounded-full cursor-pointer overflow-hidden relative group touch-none flex items-center ${
+              isPlayerFullscreen
+                ? 'bg-white/18 border border-white/20'
+                : 'bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/20 dark:border-zinc-800/20'
+            }`}
           >
             <div
-              className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all duration-75"
+              className="h-3 sm:h-2.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all duration-75"
               style={{ width: `${progressPercent}%` }}
+            />
+            <div
+              className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full transition-all ${
+                isPlayerFullscreen
+                  ? 'bg-white shadow-lg shadow-black/25'
+                  : 'bg-white shadow-md shadow-violet-500/25 ring-1 ring-violet-200'
+              }`}
+              style={{ left: `calc(${progressPercent}% - 8px)` }}
             />
           </div>
         </div>

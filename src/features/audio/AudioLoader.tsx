@@ -96,10 +96,13 @@ function findInstrumentalStemFile(files: any[]) {
   }) || null;
 }
 
-function getStemDownloadName(file: any, fallback: string) {
-  return String(file?.download || fallback || 'karaoke-instrumental.mp3')
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    .trim();
+function getFriendlyInstrumentalName(sourceName: string | null, projectTitle: string | null, language: string) {
+  const baseName = (projectTitle || sourceName || 'karaoke')
+    .replace(/\.[^/.]+$/, '')
+    .replace(/\s*\((?:минус|instrumental)\)\s*$/i, '')
+    .trim() || 'karaoke';
+
+  return `${baseName} (${language === 'ru' ? 'минус' : 'instrumental'}).mp3`;
 }
 
 function pickBestAutoSearchResult(
@@ -629,10 +632,7 @@ export const AudioLoader: React.FC = () => {
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
 
       const blob = await response.blob();
-      const fileName = getStemDownloadName(
-        instrumentalFile,
-        `${(audioFileName || 'karaoke').replace(/\.[^/.]+$/, '')}-instrumental.mp3`
-      );
+      const fileName = getFriendlyInstrumentalName(audioFileName, currentProjectTitle, language);
       const file = new File([blob], fileName, { type: blob.type || 'audio/mpeg' });
       const url = URL.createObjectURL(file);
       const titleBeforeReplace = currentProjectTitle;
