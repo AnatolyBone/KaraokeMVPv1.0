@@ -18,10 +18,10 @@ import {
   X,
 } from 'lucide-react';
 import { useKaraokeStore } from '../store/useKaraokeStore';
-import { loadProjectAudioFromDB } from '../utils/db';
+import { resolveProjectAudio } from '../utils/projectAudio';
 import type { ProjectCloudSyncStatus, RecentProject } from '../types';
 
-type AudioAvailability = 'checking' | 'available' | 'missing';
+type AudioAvailability = 'checking' | 'available' | 'missing' | 'ambiguous';
 
 interface ProjectsLibraryProps {
   onBack: () => void;
@@ -122,9 +122,8 @@ export const ProjectsLibrary: React.FC<ProjectsLibraryProps> = ({
       const initial = Object.fromEntries(projects.map((project) => [project.id, 'checking' as const]));
       setAudioAvailability(initial);
       const checked = await Promise.all(projects.map(async (project) => {
-        if (!project.audioFileName) return [project.id, 'missing'] as const;
-        const audio = await loadProjectAudioFromDB(project.id).catch(() => null);
-        return [project.id, audio ? 'available' : 'missing'] as const;
+        const resolution = await resolveProjectAudio(project).catch(() => null);
+        return [project.id, resolution?.status || 'missing'] as const;
       }));
       if (!cancelled) setAudioAvailability(Object.fromEntries(checked));
     };
@@ -326,13 +325,15 @@ export const ProjectsLibrary: React.FC<ProjectsLibraryProps> = ({
                     </div>
                     <div className="rounded-xl border border-zinc-200/70 px-3 py-2 dark:border-zinc-800">
                       <span className="block text-zinc-500">{language === 'ru' ? 'Локальное аудио' : 'Local audio'}</span>
-                      <strong className={`flex items-center gap-1.5 ${availability === 'available' ? 'text-emerald-600 dark:text-emerald-400' : availability === 'missing' ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-500'}`}>
+                      <strong className={`flex items-center gap-1.5 ${availability === 'available' ? 'text-emerald-600 dark:text-emerald-400' : availability === 'checking' ? 'text-zinc-500' : 'text-amber-600 dark:text-amber-400'}`}>
                         {availability === 'checking' ? <Loader2 size={12} className="animate-spin" /> : availability === 'available' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
                         {availability === 'checking'
                           ? (language === 'ru' ? 'Проверка…' : 'Checking…')
                           : availability === 'available'
                             ? (language === 'ru' ? 'Доступно' : 'Available')
-                            : (language === 'ru' ? 'Недоступно' : 'Unavailable')}
+                            : availability === 'ambiguous'
+                              ? (language === 'ru' ? 'Нужно уточнение' : 'Needs review')
+                              : (language === 'ru' ? 'Недоступно' : 'Unavailable')}
                       </strong>
                     </div>
                     <div className="rounded-xl border border-zinc-200/70 px-3 py-2 dark:border-zinc-800">
@@ -344,12 +345,16 @@ export const ProjectsLibrary: React.FC<ProjectsLibraryProps> = ({
                     </div>
                   </div>
 
-                  {availability === 'missing' && project.audioFileName && (
+                  {(availability === 'missing' || availability === 'ambiguous') && project.audioFileName && (
                     <p className="mt-3 flex items-start gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-[10px] leading-relaxed text-amber-700 dark:text-amber-300">
                       <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-                      {language === 'ru'
-                        ? `Файл «${project.audioFileName}» не найден в этом браузере. Текст и тайминги можно открыть, но аудио потребуется загрузить заново.`
-                        : `“${project.audioFileName}” is not stored in this browser. Lyrics and timings can still be opened, but the audio must be loaded again.`}
+                      {availability === 'ambiguous'
+                        ? (language === 'ru'
+                          ? `Найдено несколько локальных копий файла «${project.audioFileName}». Автоматический выбор заблокирован, чтобы не открыть аудио другого проекта.`
+                          : `Multiple local copies of “${project.audioFileName}” were found. Automatic selection is blocked to avoid opening another project's audio.`)
+                        : (language === 'ru'
+                          ? `Файл «${project.audioFileName}» не найден в этом браузере. Текст и тайминги можно открыть, но аудио потребуется загрузить заново.`
+                          : `“${project.audioFileName}” is not stored in this browser. Lyrics and timings can still be opened, but the audio must be loaded again.`)}
                     </p>
                   )}
 

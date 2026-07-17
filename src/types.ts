@@ -83,6 +83,10 @@ export interface TimingOffsetPreview {
   negativeLineTimestampCount: number;
   negativeWordTimestampCount: number;
   negativeSyllableTimestampCount: number;
+  outOfRangeTimestampCount: number;
+  outOfRangeLineTimestampCount: number;
+  outOfRangeWordTimestampCount: number;
+  outOfRangeSyllableTimestampCount: number;
   firstTimestampBefore: number | null;
   lastTimestampBefore: number | null;
   firstTimestampAfter: number | null;
@@ -108,7 +112,11 @@ export interface RecentProject {
   createdAt?: string;
   updatedAt?: string;
   cloudSyncStatus?: ProjectCloudSyncStatus;
+  legacyProjectIds?: string[];
+  globalTimingOffset?: number;
 }
+
+export type TimingComparisonMode = 'shifted' | 'original';
 
 export type ProjectCloudSyncStatus = 'local' | 'pending' | 'synced' | 'error';
 

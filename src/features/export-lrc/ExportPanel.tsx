@@ -1,18 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useKaraokeStore, getDefaultProjectTitle } from '../../store/useKaraokeStore';
 import { generateLRC } from '../../utils/lrc';
 import { generateSRT, generateASS, generateVTT } from '../../utils/subtitleFormats';
 import { FileDown, Copy, Check, AlertTriangle, Layers, Database, Upload, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { localization } from '../../utils/localization';
-import { loadAudioFromDB, loadCoverFromDB, loadProjectAudioFromDB, loadProjectCoverFromDB } from '../../utils/db';
+import { loadAudioFromDB, loadCoverFromDB, loadProjectCoverFromDB } from '../../utils/db';
 import { AuthSection } from '../../components/AuthSection';
 import { supabase } from '../../services/supabaseClient';
+import { resolveProjectAudio } from '../../utils/projectAudio';
+import { createEffectiveTimingLines } from '../../utils/timingOffset';
 
 type ExportFormat = 'lrc' | 'srt' | 'ass' | 'vtt';
 
 export const ExportPanel: React.FC = () => {
   const {
     lines,
+    globalTimingOffset,
     audioFileName,
     currentProjectTitle,
     setCurrentProjectTitle,
@@ -32,6 +35,10 @@ export const ExportPanel: React.FC = () => {
   const [format, setFormat] = useState<ExportFormat>('lrc');
   const dict = localization[language];
   const [copied, setCopied] = useState(false);
+  const effectiveLines = useMemo(
+    () => createEffectiveTimingLines(lines, globalTimingOffset, 'shifted'),
+    [lines, globalTimingOffset],
+  );
 
   // State for publishing
   const [artist, setArtist] = useState('');
@@ -46,6 +53,14 @@ export const ExportPanel: React.FC = () => {
   const [publishing, setPublishing] = useState(false);
   const [publishStatus, setPublishStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [pubErrorMsg, setPubErrorMsg] = useState('');
+
+  const loadCurrentProjectAudio = async () => {
+    if (currentProjectId) {
+      const project = useKaraokeStore.getState().recentProjects.find((item) => item.id === currentProjectId);
+      if (project) return (await resolveProjectAudio(project)).audio;
+    }
+    return loadAudioFromDB();
+  };
 
   // Initializing state with metadata or parsed project title
   useEffect(() => {
@@ -70,7 +85,7 @@ export const ExportPanel: React.FC = () => {
     let cancelled = false;
     const checkDBFiles = async () => {
       try {
-        const audioFile = await loadAudioFromDB() || (currentProjectId ? await loadProjectAudioFromDB(currentProjectId) : null);
+        const audioFile = await loadCurrentProjectAudio();
         if (cancelled) return;
         setHasLocalAudio(!!audioFile);
         setUploadAudio(!!audioFile);
@@ -131,7 +146,7 @@ export const ExportPanel: React.FC = () => {
       }
 
       const audioFile = uploadAudio
-        ? await loadAudioFromDB() || (currentProjectId ? await loadProjectAudioFromDB(currentProjectId) : null)
+        ? await loadCurrentProjectAudio()
         : undefined;
       const coverFile = uploadCover
         ? await loadCoverFromDB() || (currentProjectId ? await loadProjectCoverFromDB(currentProjectId) : null)
@@ -141,7 +156,7 @@ export const ExportPanel: React.FC = () => {
         artist: artist.trim(),
         title: title.trim(),
         album: album.trim() || undefined,
-        lines,
+        lines: effectiveLines,
         videoStyle,
         audioFile: audioFile || undefined,
         coverFile: coverFile ? (coverFile instanceof File ? coverFile : new File([coverFile], 'cover.png', { type: coverFile.type })) : undefined,
@@ -162,20 +177,20 @@ export const ExportPanel: React.FC = () => {
     }
   };
 
-  const timedLinesCount = lines.filter((line) => line.time !== null).length;
+  const timedLinesCount = effectiveLines.filter((line) => line.time !== null).length;
 
   // Generate text dynamically based on active formatting select
   let previewContent = '';
   if (timedLinesCount > 0) {
     if (format === 'srt') {
-      previewContent = generateSRT(lines);
+      previewContent = generateSRT(effectiveLines);
     } else if (format === 'ass') {
-      previewContent = generateASS(lines, videoStyle.fontFamily, 20);
+      previewContent = generateASS(effectiveLines, videoStyle.fontFamily, 20);
     } else if (format === 'vtt') {
-      previewContent = generateVTT(lines);
+      previewContent = generateVTT(effectiveLines);
     } else {
       const fileNameToUse = (currentProjectTitle || '').trim() || getDefaultProjectTitle(audioFileName, lines, language);
-      previewContent = generateLRC(lines, fileNameToUse);
+      previewContent = generateLRC(effectiveLines, fileNameToUse);
     }
   }
 

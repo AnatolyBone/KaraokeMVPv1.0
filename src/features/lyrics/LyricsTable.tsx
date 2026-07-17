@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useKaraokeStore } from '../../store/useKaraokeStore';
 import { formatTime, parseTime } from '../../utils/time';
 import { audioRef } from '../../audioRef';
@@ -8,10 +8,13 @@ import {
   Trash2, Clock, X, Plus, Minus, ArrowLeft,
   GripVertical, Scissors, Merge, HelpCircle, Undo2, RotateCw, ChevronDown, ChevronUp, Globe
 } from 'lucide-react';
+import { createEffectiveTimingLines, getOriginalTimestamp } from '../../utils/timingOffset';
 
 export const LyricsTable: React.FC = () => {
   const {
     lines,
+    globalTimingOffset,
+    timingComparisonMode,
     updateLineText,
     updateLineTime,
     shiftLineTime,
@@ -36,6 +39,12 @@ export const LyricsTable: React.FC = () => {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [showSplitDialog, setShowSplitDialog] = useState<string | null>(null);
 
+  const activeOffset = timingComparisonMode === 'shifted' ? globalTimingOffset : 0;
+  const effectiveLines = useMemo(
+    () => createEffectiveTimingLines(lines, globalTimingOffset, timingComparisonMode),
+    [lines, globalTimingOffset, timingComparisonMode],
+  );
+
   const dict = localization[language];
   const secLabel = language === 'ru' ? 'сек' : 'sec';
 
@@ -53,11 +62,11 @@ export const LyricsTable: React.FC = () => {
       return;
     }
     if (val.includes(':')) {
-      updateLineTime(id, parseTime(val));
+      updateLineTime(id, getOriginalTimestamp(parseTime(val), activeOffset));
     } else {
       const secs = parseFloat(val);
       if (!isNaN(secs)) {
-        updateLineTime(id, secs);
+        updateLineTime(id, getOriginalTimestamp(secs, activeOffset));
       }
     }
   };
@@ -68,11 +77,11 @@ export const LyricsTable: React.FC = () => {
       return;
     }
     if (val.includes(':')) {
-      updateWordTime(lineId, wordId, parseTime(val));
+      updateWordTime(lineId, wordId, getOriginalTimestamp(parseTime(val), activeOffset));
     } else {
       const secs = parseFloat(val);
       if (!isNaN(secs)) {
-        updateWordTime(lineId, wordId, secs);
+        updateWordTime(lineId, wordId, getOriginalTimestamp(secs, activeOffset));
       }
     }
   };
@@ -190,6 +199,7 @@ export const LyricsTable: React.FC = () => {
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
               {lines.map((line, idx) => {
                 const isExpanded = !!expandedLines[line.id];
+                const effectiveLine = effectiveLines[idx];
                 
                 return (
                   <React.Fragment key={line.id}>
@@ -258,7 +268,7 @@ export const LyricsTable: React.FC = () => {
                           <input
                             type="text"
                             placeholder="--:--.--"
-                            value={line.time !== null ? formatTime(line.time) : ''}
+                            value={effectiveLine.time !== null ? formatTime(effectiveLine.time) : ''}
                             onChange={(e) => handleTimeManualChange(line.id, e.target.value)}
                             className={`w-24 text-center px-2 py-1 rounded-lg text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-violet-500 ${
                               line.time !== null
@@ -272,7 +282,7 @@ export const LyricsTable: React.FC = () => {
                           />
                           {line.time !== null && (
                             <button
-                              onClick={() => jumpToTime(line.time)}
+                              onClick={() => jumpToTime(effectiveLine.time)}
                               className="p-1 rounded hover:bg-violet-500/15 text-violet-550 transition-colors"
                               title="Воспроизвести"
                             >
@@ -350,7 +360,7 @@ export const LyricsTable: React.FC = () => {
                             <button
                               onClick={() => {
                                 const cur = audioRef.current ? audioRef.current.currentTime : 0;
-                                updateLineTime(line.id, cur);
+                                updateLineTime(line.id, getOriginalTimestamp(cur, activeOffset));
                               }}
                               className="px-2 py-0.5 rounded text-[10px] bg-violet-500/10 text-violet-500 font-semibold transition-colors"
                             >
@@ -385,7 +395,9 @@ export const LyricsTable: React.FC = () => {
                               <HelpCircle size={11} /> {dict.editorMicrotiming}
                             </h5>
                             <div className="flex flex-wrap gap-3 py-1">
-                              {line.words.map((word) => (
+                              {line.words.map((word, wordIndex) => {
+                                const effectiveWord = effectiveLine.words[wordIndex];
+                                return (
                                 <div 
                                   key={word.id}
                                   className={`flex items-center gap-1 px-2 py-1.5 rounded-xl border text-xs transition-all ${
@@ -398,13 +410,13 @@ export const LyricsTable: React.FC = () => {
                                   <input
                                     type="text"
                                     placeholder="--:--.--"
-                                    value={word.time !== null ? formatTime(word.time) : ''}
+                                    value={effectiveWord.time !== null ? formatTime(effectiveWord.time) : ''}
                                     onChange={(e) => handleWordTimeChange(line.id, word.id, e.target.value)}
                                     className="w-16 text-center px-1 py-0.5 font-mono text-[10px] bg-transparent border-b border-zinc-300 dark:border-zinc-800 focus:outline-none focus:border-violet-500 text-violet-500 dark:text-violet-400 font-semibold"
                                   />
                                   {word.time !== null && (
                                     <button
-                                      onClick={() => jumpToTime(word.time)}
+                                      onClick={() => jumpToTime(effectiveWord.time)}
                                       className="p-0.5 rounded hover:bg-zinc-500/10 text-zinc-400 hover:text-violet-500"
                                       title="Перемотать"
                                     >
@@ -412,7 +424,8 @@ export const LyricsTable: React.FC = () => {
                                     </button>
                                   )}
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         </td>

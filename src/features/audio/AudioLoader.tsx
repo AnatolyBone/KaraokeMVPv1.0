@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useKaraokeStore } from '../../store/useKaraokeStore';
-import { audioRef } from '../../audioRef';
+import { audioRef, setAudioElement } from '../../audioRef';
 import {
   saveAudioToDB,
   loadAudioFromDB,
@@ -19,12 +19,11 @@ import { extractMetadataFromAudio } from '../../utils/metadata';
 import { localization } from '../../utils/localization';
 import { LyricsSearchModal } from '../../components/LyricsSearchModal';
 import { searchAllLyrics, LyricsProviderResult } from '../../services/lyricsProvider';
-import { parseLRC } from '../../utils/lrc';
 import { Upload, Trash2, Music, RefreshCw, Search, Smartphone, Loader2, Play, Pause, Wand2 } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { formatTime } from '../../utils/time';
 import { trackAppEvent } from '../../utils/analytics';
-import { canAutoImportLyrics, LyricsMatchTarget, rankLyricsResults, RankedLyricsResult } from '../../utils/lyricsMatchScore';
+import { LyricsMatchTarget, rankLyricsResults, RankedLyricsResult } from '../../utils/lyricsMatchScore';
 import { removeAllTimings } from '../../utils/timingOffset';
 import { LyricsImportReviewModal, LyricsImportReviewData } from '../../components/LyricsImportReviewModal';
 import type { StemJobState, StemKind } from '../../types';
@@ -45,6 +44,8 @@ import {
   originalAudioIdentity,
   shouldWarnAboutInstrumentalDuration,
 } from '../../utils/stemRuntime';
+import { resolveProjectAudio } from '../../utils/projectAudio';
+import { prepareLyricsImport } from '../../utils/lyricsImportFlow';
 
 function cleanAutoSearchPart(value: string): string {
   return value
@@ -221,11 +222,18 @@ export const AudioLoader: React.FC = () => {
   useEffect(() => {
     if (!audioUrl && audioFileName) {
       setIsRestoring(true);
-      Promise.all([loadAudioFromDB(), loadCoverFromDB()])
+      const activeProject = currentProjectId
+        ? useKaraokeStore.getState().recentProjects.find((project) => project.id === currentProjectId)
+        : null;
+      const audioPromise = activeProject
+        ? resolveProjectAudio(activeProject).then((resolution) => resolution.audio)
+        : loadAudioFromDB();
+
+      Promise.all([audioPromise, loadCoverFromDB()])
         .then(async ([audioFile, coverFile]) => {
           if (audioFile) {
             const url = URL.createObjectURL(audioFile);
-            setAudio(url, audioFile.name);
+            setAudio(url, activeProject?.audioFileName || audioFile.name);
 
             let coverBlobUrl: string | null = null;
             if (coverFile) {
@@ -249,7 +257,7 @@ export const AudioLoader: React.FC = () => {
         .catch((err) => console.error('Failed to restore audio/cover from DB', err))
         .finally(() => setIsRestoring(false));
     }
-  }, [audioUrl, audioFileName, setAudio, setCover, setCoverColors, setTrackMetadata]);
+  }, [audioUrl, audioFileName, currentProjectId, setAudio, setCover, setCoverColors, setTrackMetadata]);
 
   const autoSearchedFileRef = useRef<string | null>(null);
   const activeAutoSearchTokenRef = useRef<string | null>(null);
@@ -304,28 +312,18 @@ export const AudioLoader: React.FC = () => {
             return;
           }
           if (rankedResult) {
-            const { result, assessment, validation } = rankedResult;
-            if (result.syncedLyrics) {
-              const parsed = parseLRC(result.syncedLyrics);
-              if (canAutoImportLyrics(assessment, validation, true)) {
-                setLines(parsed);
-                setRawText(result.syncedLyrics);
-                setStep('timing');
-              } else {
-                setPendingLyricsReview({
-                  track: result,
-                  lines: parsed,
-                  rawText: result.syncedLyrics,
-                  assessment,
-                  validation,
-                  audioDuration: playerDuration,
-                });
-              }
+            const decision = prepareLyricsImport(rankedResult, playerDuration);
+            if (decision.kind === 'auto-import') {
+              setLines(decision.data.lines);
+              setRawText(decision.data.rawText);
+              setStep('timing');
               setLyricsSearchStatus('found');
-            } else if (result.plainLyrics) {
-              const parsed = parseLRC(result.plainLyrics);
-              setLines(parsed);
-              setRawText(result.plainLyrics);
+            } else if (decision.kind === 'review') {
+              setPendingLyricsReview(decision.data);
+              setLyricsSearchStatus('found');
+            } else if (decision.kind === 'plain') {
+              setLines(decision.lines);
+              setRawText(decision.rawText);
               setLyricsSearchStatus('found');
             } else {
               setLyricsSearchStatus('not_found');
@@ -1370,9 +1368,7 @@ export const AudioLoader: React.FC = () => {
           )}
 
           <audio
-            ref={(el) => {
-              audioRef.current = el;
-            }}
+            ref={setAudioElement}
             src={audioUrl}
             preload="auto"
             onLoadedMetadata={(e) => {

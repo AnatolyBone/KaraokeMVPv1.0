@@ -7,6 +7,8 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "test:stems": "node --experimental-strip-types --test --test-isolation=none tests/stems.test.ts",
+    "test:project-audio": "node --experimental-strip-types --test --test-isolation=none tests/projectAudio.test.ts",
+    "test:timing-offset": "node --experimental-strip-types --test --test-isolation=none tests/timingOffset.test.ts",
     "build": "vite build",
     "preview": "vite preview"
   },

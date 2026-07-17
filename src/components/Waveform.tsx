@@ -4,6 +4,7 @@ import { audioRef } from '../audioRef';
 import { formatTime } from '../utils/time';
 import { localization } from '../utils/localization';
 import { Activity, Zap, RefreshCw, Music, ShieldCheck, ZoomIn, ZoomOut } from 'lucide-react';
+import { useAudioTransport } from '../hooks/useAudioTransport';
 
 export const Waveform: React.FC = () => {
   const {
@@ -33,25 +34,10 @@ export const Waveform: React.FC = () => {
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [peaks, setPeaks] = useState<number[]>([]);
   const [isDecoding, setIsDecoding] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
+  const { currentTime } = useAudioTransport();
   const [zoom, setZoom] = useState(1); // Масштаб волны от 1x до 10x
 
   const dict = localization[language];
-
-  // Track time updates
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const handleTimeUpdate = () => {
-      setCurrentTime(audio.currentTime);
-    };
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-    };
-  }, [audioRef.current]);
 
   // Decode audio data when URL changes
   useEffect(() => {
