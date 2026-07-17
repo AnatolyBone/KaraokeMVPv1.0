@@ -21,6 +21,81 @@ export type LyricLine = {
   translation?: string; // Parallel translation line for bilingual karaoke
 };
 
+export type LyricsCheckStatus = 'good' | 'warning' | 'mismatch';
+
+export type LyricsDiagnosticSeverity = 'info' | 'warning' | 'error';
+
+export interface LyricsDiagnostic {
+  code: string;
+  severity: LyricsDiagnosticSeverity;
+  message: {
+    ru: string;
+    en: string;
+  };
+}
+
+export type LyricsDurationAssessment =
+  | 'unknown'
+  | 'close'
+  | 'possible-intro-outro'
+  | 'possible-speed-change'
+  | 'likely-different-version';
+
+export interface LyricsMatchAssessment {
+  textMatchScore: number;
+  versionConfidence: number;
+  status: LyricsCheckStatus;
+  reasons: LyricsDiagnostic[];
+  durationDifferenceSeconds: number | null;
+  lastTimestampSeconds: number | null;
+  durationAssessment: LyricsDurationAssessment;
+  sourceVersionMarkers: string[];
+  resultVersionMarkers: string[];
+  mismatchedVersionMarkers: string[];
+  titleMatch: 'exact' | 'partial' | 'weak' | 'none';
+  artistMatch: 'exact' | 'partial' | 'weak' | 'none' | 'unknown';
+}
+
+export interface LyricsValidationResult {
+  valid: boolean;
+  status: LyricsCheckStatus;
+  warnings: LyricsDiagnostic[];
+  totalLineCount: number;
+  timedLineCount: number;
+  untimedLineCount: number;
+  totalTimestampCount: number;
+  negativeTimestampCount: number;
+  outOfRangeTimestampCount: number;
+  nonMonotonicTimestampCount: number;
+  duplicateTimestampCount: number;
+  firstTimestamp: number | null;
+  lastTimestamp: number | null;
+  durationDifferenceSeconds: number | null;
+}
+
+export interface TimingOffsetPreview {
+  offsetSeconds: number;
+  affectedTimestampCount: number;
+  affectedLineTimestampCount: number;
+  affectedWordTimestampCount: number;
+  affectedSyllableTimestampCount: number;
+  negativeTimestampCount: number;
+  negativeLineTimestampCount: number;
+  negativeWordTimestampCount: number;
+  negativeSyllableTimestampCount: number;
+  firstTimestampBefore: number | null;
+  lastTimestampBefore: number | null;
+  firstTimestampAfter: number | null;
+  lastTimestampAfter: number | null;
+  minimumTimestampAfter: number | null;
+  maximumSafeNegativeOffset: number;
+  requiresClipping: boolean;
+}
+
+export interface TimingOffsetApplyOptions {
+  clipNegative?: boolean;
+}
+
 export interface RecentProject {
   id: string;
   title: string;
@@ -28,6 +103,66 @@ export interface RecentProject {
   lines: LyricLine[];
   audioFileName: string | null;
   coverColors: { primary: string; secondary: string; glow: string } | null;
+  videoStyle?: VideoStyleOptions;
+  audioIdentity?: AudioIdentityState;
+  createdAt?: string;
+  updatedAt?: string;
+  cloudSyncStatus?: ProjectCloudSyncStatus;
+}
+
+export type ProjectCloudSyncStatus = 'local' | 'pending' | 'synced' | 'error';
+
+export type StemJobStatus =
+  | 'queued'
+  | 'submitting'
+  | 'waiting'
+  | 'processing'
+  | 'distributing'
+  | 'merging'
+  | 'persisting'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type StemKind = 'vocal' | 'instrumental';
+
+export interface AudioIdentityState {
+  sourceAudioFingerprint: string | null;
+  activeAudioFingerprint: string | null;
+  activeAudioKind: 'original' | 'instrumental';
+}
+
+export interface StemAsset {
+  storagePath: string;
+  signedUrl?: string;
+  expiresAt?: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  durationSeconds: number | null;
+}
+
+export interface StemJobState {
+  id: string;
+  status: StemJobStatus;
+  mvsepStatus: string | null;
+  providerJobUrl: string | null;
+  projectId: string | null;
+  songId: string | null;
+  sourceFileName: string | null;
+  sourceSizeBytes: number | null;
+  sourceDurationSeconds: number | null;
+  sourceFingerprint: string | null;
+  sourceMimeType: string | null;
+  vocal: StemAsset | null;
+  instrumental: StemAsset | null;
+  errorMessage: string | null;
+  outputsPersistError: string | null;
+  persistenceFailureCode: string | null;
+  requiresNewSeparation: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  outputsSavedAt: string | null;
 }
 
 

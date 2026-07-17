@@ -24,21 +24,8 @@ ALTER TABLE public.song_stems
   ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE,
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL;
 
-DO $$
-DECLARE
-  constraint_name TEXT;
-BEGIN
-  SELECT conname
-  INTO constraint_name
-  FROM pg_constraint
-  WHERE conrelid = 'public.song_stems'::regclass
-    AND contype = 'c'
-    AND pg_get_constraintdef(oid) LIKE '%status%';
-
-  IF constraint_name IS NOT NULL THEN
-    EXECUTE format('ALTER TABLE public.song_stems DROP CONSTRAINT %I', constraint_name);
-  END IF;
-END $$;
+ALTER TABLE public.song_stems
+  DROP CONSTRAINT IF EXISTS song_stems_status_check;
 
 UPDATE public.song_stems
 SET status = 'queued'
@@ -76,23 +63,6 @@ DROP POLICY IF EXISTS "Admins can manage MVSEP jobs" ON public.song_stems;
 CREATE POLICY "Users can read their own MVSEP jobs" ON public.song_stems
   FOR SELECT USING (auth.uid() = owner_id OR public.is_admin());
 
-CREATE POLICY "Users can create their own MVSEP jobs" ON public.song_stems
-  FOR INSERT WITH CHECK (
-    auth.uid() = owner_id AND EXISTS (
-      SELECT 1
-      FROM public.profiles
-      WHERE profiles.id = auth.uid()
-        AND (
-          profiles.role IN ('pro', 'admin')
-          OR (
-            profiles.plan = 'plus'
-            AND profiles.plus_until IS NOT NULL
-            AND profiles.plus_until > NOW()
-          )
-        )
-    )
-  );
-
 CREATE POLICY "Admins can manage MVSEP jobs" ON public.song_stems
   FOR ALL USING (public.is_admin());
 
@@ -107,3 +77,6 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.telegram_bot_settings (key, value)
 VALUES ('mvsep_max_concurrent_jobs', '1')
 ON CONFLICT (key) DO NOTHING;
+
+-- Jobs are created and mutated only by the owner-checking Edge Function.
+REVOKE INSERT, UPDATE, DELETE ON public.song_stems FROM anon, authenticated;

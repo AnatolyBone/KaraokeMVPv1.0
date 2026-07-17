@@ -3,8 +3,9 @@ import { useKaraokeStore } from '../../store/useKaraokeStore';
 import { formatTime, parseTime } from '../../utils/time';
 import { audioRef } from '../../audioRef';
 import { localization } from '../../utils/localization';
+import { TimingOffsetPanel } from '../../components/TimingOffsetPanel';
 import { 
-  Trash2, Clock, X, Plus, Minus, FastForward, ArrowLeft, 
+  Trash2, Clock, X, Plus, Minus, ArrowLeft,
   GripVertical, Scissors, Merge, HelpCircle, Undo2, RotateCw, ChevronDown, ChevronUp, Globe
 } from 'lucide-react';
 
@@ -16,7 +17,6 @@ export const LyricsTable: React.FC = () => {
     shiftLineTime,
     deleteLine,
     removeLineTiming,
-    shiftAllTimings,
     splitLine,
     mergeLines,
     reorderLines,
@@ -163,46 +163,7 @@ export const LyricsTable: React.FC = () => {
           </div>
         </div>
 
-        {/* Shift All Timings Panel */}
-        <div
-          className={`rounded-xl p-4 border ${
-            theme === 'dark'
-              ? 'bg-zinc-900/40 border-zinc-800/70'
-              : 'bg-zinc-50 border-zinc-200/70'
-          }`}
-        >
-          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-3 flex items-center gap-1.5">
-            <FastForward size={14} /> {dict.editorShiftAll}
-          </p>
-          
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => shiftAllTimings(-0.5)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/25 transition-colors"
-            >
-              -0.5 {secLabel}
-            </button>
-            <button
-              onClick={() => shiftAllTimings(-0.2)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/25 transition-colors"
-            >
-              -0.2 {secLabel}
-            </button>
-            <div className="h-5 w-[1px] bg-zinc-200 dark:bg-zinc-800 mx-1" />
-            <button
-              onClick={() => shiftAllTimings(0.2)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/25 transition-colors"
-            >
-              +0.2 {secLabel}
-            </button>
-            <button
-              onClick={() => shiftAllTimings(0.5)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/25 transition-colors"
-            >
-              +0.5 {secLabel}
-            </button>
-          </div>
-        </div>
+        <TimingOffsetPanel />
       </div>
 
       {/* Lines Table container */}

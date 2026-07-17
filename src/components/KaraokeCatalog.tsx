@@ -6,6 +6,10 @@ import { extractDominantColors } from '../utils/colors';
 import { Eye, Music, Play, Search, Heart, Loader2, Disc, Library, Share2 } from 'lucide-react';
 import { lrclibProviderInstance } from '../services/lrclibService';
 import { parseLRC } from '../utils/lrc';
+import { assessLyricsMatch, canAutoImportLyrics } from '../utils/lyricsMatchScore';
+import { validateLyricsTimings } from '../utils/lyricsValidation';
+import { removeAllTimings } from '../utils/timingOffset';
+import { LyricsImportReviewModal, LyricsImportReviewData } from './LyricsImportReviewModal';
 
 
 interface KaraokeCatalogProps {
@@ -35,6 +39,12 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
 
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [pendingLyricsReview, setPendingLyricsReview] = useState<{
+    data: LyricsImportReviewData;
+    catalogTrack: any;
+    audioUrl: string;
+    coverUrl: string | null;
+  } | null>(null);
   const timedLinesCount = lines.filter((line) => line.time !== null).length;
   const canPublishCurrentProject = timedLinesCount > 0;
 
@@ -163,6 +173,32 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
     fetchCatalog();
   }, []);
 
+  const applyReviewedCatalogTrack = async (manualTiming: boolean) => {
+    if (!pendingLyricsReview) return;
+    const { data, catalogTrack, audioUrl, coverUrl } = pendingLyricsReview;
+    const nextLines = manualTiming ? removeAllTimings(data.lines) : data.lines;
+
+    if (!manualTiming) {
+      await cacheLrcLibTrack(data.track);
+    }
+    setAudio(audioUrl, `${catalogTrack.songs.artist} - ${catalogTrack.songs.title}.mp3`);
+    setRawText(manualTiming
+      ? (data.track.plainLyrics || nextLines.map((line) => line.text).join('\n'))
+      : data.rawText);
+    setLines(nextLines);
+    updateVideoStyle(catalogTrack.video_style || {});
+    setCurrentProjectTitle(`${catalogTrack.songs.artist} - ${catalogTrack.songs.title}`);
+
+    if (coverUrl) {
+      setCover(coverUrl);
+      const colors = await extractDominantColors(coverUrl);
+      setCoverColors(colors);
+    }
+
+    setPendingLyricsReview(null);
+    onTrackLoaded?.();
+  };
+
   const handleSelectTrack = async (track: any) => {
     if (loadingTrackId) return;
     setLoadingTrackId(track.id);
@@ -212,9 +248,36 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
 
             if (lrclibTrack?.syncedLyrics) {
               const parsed = parseLRC(lrclibTrack.syncedLyrics);
+              const assessment = assessLyricsMatch(lrclibTrack, {
+                trackName: track.songs.title,
+                artistName: track.songs.artist,
+                albumName: track.songs.album,
+                audioFileName: `${track.songs.artist} - ${track.songs.title}`,
+                duration: track.songs.duration_seconds,
+              });
+              const validation = validateLyricsTimings(parsed, {
+                audioDuration: track.songs.duration_seconds,
+                resultDuration: lrclibTrack.duration,
+              });
+
+              if (!canAutoImportLyrics(assessment, validation, true) && audioUrl) {
+                setPendingLyricsReview({
+                  data: {
+                    track: lrclibTrack,
+                    lines: parsed,
+                    rawText: lrclibTrack.syncedLyrics,
+                    assessment,
+                    validation,
+                    audioDuration: track.songs.duration_seconds || null,
+                  },
+                  catalogTrack: track,
+                  audioUrl,
+                  coverUrl,
+                });
+                return;
+              }
+
               linesToUse = parsed || [];
-              
-              // Кэшируем трек в базу
               await cacheLrcLibTrack(lrclibTrack);
             } else if (lrclibTrack?.plainLyrics) {
               const parsed = lrclibTrack.plainLyrics
@@ -338,6 +401,13 @@ export const KaraokeCatalog: React.FC<KaraokeCatalogProps> = ({ onTrackLoaded, o
 
   return (
     <div className="w-full flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
+      <LyricsImportReviewModal
+        data={pendingLyricsReview?.data || null}
+        language={language}
+        onUse={() => void applyReviewedCatalogTrack(false)}
+        onChooseOther={() => setPendingLyricsReview(null)}
+        onManual={() => void applyReviewedCatalogTrack(true)}
+      />
       {/* Header and Search */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

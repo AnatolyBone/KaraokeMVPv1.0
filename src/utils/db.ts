@@ -60,6 +60,29 @@ function clearBlobByKey(key: string): Promise<void> {
 
 const projectAudioKey = (projectId: string) => `project:${projectId}:audio`;
 const projectCoverKey = (projectId: string) => `project:${projectId}:cover`;
+const projectStemKey = (projectId: string, fingerprint: string, kind: 'vocal' | 'instrumental') =>
+  `project:${projectId}:stem:${fingerprint}:${kind}`;
+const jobStemKey = (jobId: string, fingerprint: string, kind: 'vocal' | 'instrumental') =>
+  `stem:${fingerprint}:${jobId}:${kind}`;
+const sourceAudioKey = (fingerprint: string) => `stem-source:${fingerprint}:audio`;
+
+function clearKeysByPrefix(prefix: string): Promise<void> {
+  return new Promise((resolve) => {
+    openMediaDB().then((db) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const cursorRequest = store.openCursor();
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) return;
+        if (typeof cursor.key === 'string' && cursor.key.startsWith(prefix)) cursor.delete();
+        cursor.continue();
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+    }).catch(() => resolve());
+  });
+}
 
 export function saveAudioToDB(file: File): Promise<void> {
   return saveBlobByKey(file, FILE_KEY);
@@ -101,9 +124,48 @@ export function loadProjectCoverFromDB(projectId: string): Promise<File | Blob |
   return loadBlobByKey<File | Blob>(projectCoverKey(projectId));
 }
 
+export function saveStemSourceAudioToDB(fingerprint: string, file: File): Promise<void> {
+  return saveBlobByKey(file, sourceAudioKey(fingerprint));
+}
+
+export function loadStemSourceAudioFromDB(fingerprint: string): Promise<File | null> {
+  return loadBlobByKey<File>(sourceAudioKey(fingerprint));
+}
+
+export function saveStemToDB(
+  jobId: string,
+  fingerprint: string,
+  kind: 'vocal' | 'instrumental',
+  blob: Blob,
+  projectId?: string | null,
+): Promise<void> {
+  return Promise.all([
+    saveBlobByKey(blob, jobStemKey(jobId, fingerprint, kind)),
+    ...(projectId ? [saveBlobByKey(blob, projectStemKey(projectId, fingerprint, kind))] : []),
+  ]).then(() => undefined);
+}
+
+export async function loadStemFromDB(
+  jobId: string,
+  fingerprint: string,
+  kind: 'vocal' | 'instrumental',
+  projectId?: string | null,
+): Promise<Blob | null> {
+  if (projectId) {
+    const projectStem = await loadBlobByKey<Blob>(projectStemKey(projectId, fingerprint, kind));
+    if (projectStem) return projectStem;
+  }
+  return loadBlobByKey<Blob>(jobStemKey(jobId, fingerprint, kind));
+}
+
+export async function clearProjectStemsFromDB(projectId: string): Promise<void> {
+  await clearKeysByPrefix(`project:${projectId}:stem:`);
+}
+
 export async function clearProjectMediaFromDB(projectId: string): Promise<void> {
   await Promise.all([
     clearBlobByKey(projectAudioKey(projectId)),
     clearBlobByKey(projectCoverKey(projectId)),
+    clearProjectStemsFromDB(projectId),
   ]);
 }

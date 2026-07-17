@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useKaraokeStore } from '../store/useKaraokeStore';
 import { searchAllLyrics, LyricsProviderResult } from '../services/lyricsProvider';
 import { parseLRC } from '../utils/lrc';
 import { localization } from '../utils/localization';
 import { X, Search, RefreshCw, AlertCircle, FileText, Music } from 'lucide-react';
+import { audioRef } from '../audioRef';
+import { canAutoImportLyrics, rankLyricsResults, RankedLyricsResult } from '../utils/lyricsMatchScore';
+import { removeAllTimings } from '../utils/timingOffset';
+import { LyricsImportReviewModal, LyricsImportReviewData } from './LyricsImportReviewModal';
 
 interface LyricsSearchModalProps {
   isOpen: boolean;
@@ -24,8 +28,23 @@ export const LyricsSearchModal: React.FC<LyricsSearchModalProps> = ({ isOpen, on
   const [results, setResults] = useState<LyricsProviderResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingReview, setPendingReview] = useState<LyricsImportReviewData | null>(null);
 
   const dict = localization[language];
+  const audioDuration = audioRef.current?.duration && Number.isFinite(audioRef.current.duration)
+    ? audioRef.current.duration
+    : null;
+  const matchTarget = useMemo(() => ({
+    trackName: trackMetadata?.title || audioFileName?.replace(/\.[^/.]+$/, '') || query,
+    artistName: trackMetadata?.artist,
+    albumName: trackMetadata?.album,
+    audioFileName,
+    duration: audioDuration,
+  }), [trackMetadata, audioFileName, query, audioDuration]);
+  const rankedResults = useMemo(
+    () => rankLyricsResults(results, matchTarget),
+    [results, matchTarget],
+  );
 
   const runSearch = async (searchQuery: string) => {
     const trimmedQuery = searchQuery.trim();
@@ -64,6 +83,7 @@ export const LyricsSearchModal: React.FC<LyricsSearchModalProps> = ({ isOpen, on
       setQuery(nextQuery);
       setResults([]);
       setError(null);
+      setPendingReview(null);
       if (nextQuery.trim()) {
         runSearch(nextQuery);
       }
@@ -77,15 +97,41 @@ export const LyricsSearchModal: React.FC<LyricsSearchModalProps> = ({ isOpen, on
 
   if (!isOpen) return null;
 
-  const handleSelectTrack = (track: LyricsProviderResult) => {
+  const importSyncedTrack = (data: LyricsImportReviewData) => {
+    setLines(data.lines);
+    setRawText(data.rawText);
+    setStep('timing');
+    alert(dict.searchImportSuccess);
+    setPendingReview(null);
+    onClose();
+  };
+
+  const importForManualTiming = (data: LyricsImportReviewData) => {
+    const untimedLines = removeAllTimings(data.lines);
+    setLines(untimedLines);
+    setRawText(data.track.plainLyrics || untimedLines.map((line) => line.text).join('\n'));
+    setStep('timing');
+    setPendingReview(null);
+    onClose();
+  };
+
+  const handleSelectTrack = ({ result: track, assessment, validation }: RankedLyricsResult) => {
     // Импортируем тайминги
     if (track.syncedLyrics) {
       const parsed = parseLRC(track.syncedLyrics);
-      setLines(parsed);
-      setRawText(track.syncedLyrics);
-      setStep('timing');
-      alert(dict.searchImportSuccess);
-      onClose();
+      const reviewData: LyricsImportReviewData = {
+        track,
+        lines: parsed,
+        rawText: track.syncedLyrics,
+        assessment,
+        validation,
+        audioDuration,
+      };
+      if (canAutoImportLyrics(assessment, validation, true)) {
+        importSyncedTrack(reviewData);
+      } else {
+        setPendingReview(reviewData);
+      }
     } else if (track.plainLyrics) {
       const parsed = parseLRC(track.plainLyrics);
       setLines(parsed);
@@ -184,12 +230,14 @@ export const LyricsSearchModal: React.FC<LyricsSearchModalProps> = ({ isOpen, on
             </div>
           )}
 
-          {!loading && results.length > 0 && (
+          {!loading && rankedResults.length > 0 && (
             <div className="divide-y divide-zinc-800/40">
-              {results.map((track) => (
+              {rankedResults.map((rankedResult) => {
+                const { result: track, assessment, status } = rankedResult;
+                return (
                 <div
-                  key={track.id}
-                  onClick={() => handleSelectTrack(track)}
+                  key={`${track.provider}:${track.id}`}
+                  onClick={() => handleSelectTrack(rankedResult)}
                   className="p-3.5 hover:bg-zinc-800/35 active:bg-zinc-800/60 rounded-lg transition-colors cursor-pointer flex items-center justify-between gap-4"
                 >
                   <div className="min-w-0 flex-1">
@@ -204,6 +252,15 @@ export const LyricsSearchModal: React.FC<LyricsSearchModalProps> = ({ isOpen, on
                           Plain
                         </span>
                       )}
+                      <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                        status === 'good'
+                          ? 'bg-emerald-500/10 text-emerald-400'
+                          : status === 'warning'
+                            ? 'bg-amber-500/10 text-amber-400'
+                            : 'bg-red-500/10 text-red-400'
+                      }`}>
+                        T {assessment.textMatchScore}% · V {assessment.versionConfidence}%
+                      </span>
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-zinc-400 mt-1 truncate">
                       <span className="font-medium">{track.artistName}</span>
@@ -219,11 +276,18 @@ export const LyricsSearchModal: React.FC<LyricsSearchModalProps> = ({ isOpen, on
                     {formatDuration(track.duration)}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>
       </div>
+      <LyricsImportReviewModal
+        data={pendingReview}
+        language={language}
+        onUse={() => pendingReview && importSyncedTrack(pendingReview)}
+        onChooseOther={() => setPendingReview(null)}
+        onManual={() => pendingReview && importForManualTiming(pendingReview)}
+      />
     </div>
   );
 };

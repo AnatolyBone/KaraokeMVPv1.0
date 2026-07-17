@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "test:stems": "node --experimental-strip-types --test --test-isolation=none tests/stems.test.ts",
     "build": "vite build",
     "preview": "vite preview"
   },

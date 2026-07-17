@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { AppStep, LyricLine, WordTiming, VideoStyleOptions, UserProfile } from '../types';
+import { AppStep, LyricLine, WordTiming, VideoStyleOptions, UserProfile, TimingOffsetApplyOptions, TimingOffsetPreview, StemJobState, AudioIdentityState, RecentProject } from '../types';
+import { withoutPersistedSignedUrls } from '../utils/stemRuntime';
 import { splitWordIntoSyllables } from '../utils/hyphenation';
 import { parseLRC } from '../utils/lrc';
 import { supabase } from '../services/supabaseClient';
@@ -19,18 +20,11 @@ import {
   saveAudioToDB,
   saveCoverToDB,
 } from '../utils/db';
+import { applyTimingOffset, createTimingOffsetPreview } from '../utils/timingOffset';
 
 const MODERN_VIDEO_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
 
-type SavedProjectDraft = {
-  id: string;
-  title: string;
-  rawText: string;
-  lines: LyricLine[];
-  audioFileName: string | null;
-  coverColors: { primary: string; secondary: string; glow: string } | null;
-  videoStyle?: VideoStyleOptions;
-};
+type SavedProjectDraft = RecentProject;
 
 function normalizeTrackLookup(value: string | null | undefined) {
   return (value || '')
@@ -115,15 +109,7 @@ interface KaraokeState {
   setTrackMetadata: (metadata: { artist: string | null; title: string | null; album: string | null } | null) => void;
 
   // Recent Projects lists
-  recentProjects: {
-    id: string;
-    title: string;
-    rawText: string;
-    lines: LyricLine[];
-    audioFileName: string | null;
-    coverColors: { primary: string; secondary: string; glow: string } | null;
-    videoStyle?: VideoStyleOptions;
-  }[];
+  recentProjects: RecentProject[];
 
   // Syllable Mode parameters
   syllableMode: boolean;
@@ -157,7 +143,8 @@ interface KaraokeState {
   // Project switcher actions
   saveCurrentAsProject: (title: string) => Promise<void>;
   loadProject: (id: string) => Promise<void>;
-  deleteProject: (id: string) => void;
+  renameProject: (id: string, title: string) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
 
   // Translation actions
   updateLineTranslation: (id: string, translation: string) => void;
@@ -170,7 +157,7 @@ interface KaraokeState {
   timestampCurrentLine: (time: number) => void; // Legacy/compatibility alias
   undoLastTiming: () => void;
   resetTimings: () => void;
-  shiftAllTimings: (offset: number) => void;
+  shiftAllTimings: (offset: number, options?: TimingOffsetApplyOptions) => TimingOffsetPreview;
   
   // Edit Methods (Undoable)
   updateLineText: (id: string, text: string) => void;
@@ -191,6 +178,10 @@ interface KaraokeState {
   redo: () => void;
 
   currentProjectId: string | null;
+  stemJob: StemJobState | null;
+  setStemJob: (job: StemJobState | null) => void;
+  audioIdentity: AudioIdentityState;
+  setAudioIdentity: (identity: AudioIdentityState) => void;
   user: User | null;
   userProfile: UserProfile | null;
   syncing: boolean;
@@ -251,6 +242,12 @@ export const useKaraokeStore = create<KaraokeState>()(
       audioFileName: null,
       currentProjectTitle: null,
       currentProjectId: null,
+      stemJob: null,
+      audioIdentity: {
+        sourceAudioFingerprint: null,
+        activeAudioFingerprint: null,
+        activeAudioKind: 'original',
+      },
       rawText: '',
       lines: [],
       currentIndex: 0,
@@ -306,6 +303,8 @@ export const useKaraokeStore = create<KaraokeState>()(
       historyIndex: -1,
 
       setStep: (step) => set({ step }),
+      setStemJob: (stemJob) => set({ stemJob }),
+      setAudioIdentity: (audioIdentity) => set({ audioIdentity }),
       setAppMode: (appMode) => set({ appMode }),
       setSubMode: (subMode) => set({ subMode }),
 
@@ -320,7 +319,18 @@ export const useKaraokeStore = create<KaraokeState>()(
       setSyllableMode: (syllableMode) => set({ syllableMode, currentSyllableIndex: 0 }),
 
       setUser: (user) => {
-        set({ user });
+        const previousUserId = get().user?.id || null;
+        set({
+          user,
+          ...(previousUserId !== (user?.id || null) ? {
+            stemJob: null,
+            audioIdentity: {
+              sourceAudioFingerprint: null,
+              activeAudioFingerprint: null,
+              activeAudioKind: 'original' as const,
+            },
+          } : {}),
+        });
         if (user) {
           get().fetchUserProfile(user.id);
         } else {
@@ -371,11 +381,13 @@ export const useKaraokeStore = create<KaraokeState>()(
       setSyncing: (syncing) => set({ syncing }),
 
       saveCurrentAsProject: async (title) => {
-        const { lines, rawText, audioFileName, coverColors, recentProjects, currentProjectId, user } = get();
+        const { lines, rawText, audioFileName, coverColors, recentProjects, currentProjectId, user, audioIdentity } = get();
         const cleanTitle = title.trim() || audioFileName?.replace(/\.[^/.]+$/, '') || 'Без названия';
         const id = currentProjectId || crypto.randomUUID();
+        const now = new Date().toISOString();
+        const existingProject = recentProjects.find((project) => project.id === id);
         
-        const newProject = {
+        const newProject: RecentProject = {
           id,
           title: cleanTitle,
           rawText,
@@ -383,6 +395,10 @@ export const useKaraokeStore = create<KaraokeState>()(
           audioFileName,
           coverColors,
           videoStyle: get().videoStyle,
+          audioIdentity,
+          createdAt: existingProject?.createdAt || now,
+          updatedAt: now,
+          cloudSyncStatus: user ? 'pending' : 'local',
         };
 
         // Remove duplicate with same audioFileName if necessary
@@ -418,13 +434,29 @@ export const useKaraokeStore = create<KaraokeState>()(
                 lines,
                 video_style: get().videoStyle,
                 audio_file_name: audioFileName,
-                updated_at: new Date().toISOString(),
+                updated_at: now,
               });
             if (error) {
               console.error('Failed to sync saved project to Supabase:', error);
+              set((state) => ({
+                recentProjects: state.recentProjects.map((project) =>
+                  project.id === id ? { ...project, cloudSyncStatus: 'error' as const } : project
+                ),
+              }));
+            } else {
+              set((state) => ({
+                recentProjects: state.recentProjects.map((project) =>
+                  project.id === id ? { ...project, cloudSyncStatus: 'synced' as const } : project
+                ),
+              }));
             }
           } catch (err) {
             console.error('Error syncing project to Supabase:', err);
+            set((state) => ({
+              recentProjects: state.recentProjects.map((project) =>
+                project.id === id ? { ...project, cloudSyncStatus: 'error' as const } : project
+              ),
+            }));
           }
         }
       },
@@ -504,8 +536,14 @@ export const useKaraokeStore = create<KaraokeState>()(
 
           set({
             currentProjectId: project.id,
+            stemJob: null,
+            audioIdentity: project.audioIdentity || {
+              sourceAudioFingerprint: null,
+              activeAudioFingerprint: null,
+              activeAudioKind: 'original',
+            },
             audioUrl,
-            rawText: project.rawText,
+            rawText: project.rawText || project.lines.map((line) => line.text).join('\n'),
             lines: project.lines,
             audioFileName: projectAudio ? project.audioFileName : null,
             currentProjectTitle: project.title,
@@ -518,6 +556,61 @@ export const useKaraokeStore = create<KaraokeState>()(
             historyIndex: 0,
             ...(project.videoStyle ? { videoStyle: project.videoStyle } : {})
           });
+        }
+      },
+
+      renameProject: async (id, title) => {
+        const cleanTitle = title.trim();
+        if (!cleanTitle) return;
+
+        const { user, currentProjectId, recentProjects } = get();
+        const projectToRename = recentProjects.find((project) => project.id === id);
+        if (!projectToRename) return;
+        const updatedAt = new Date().toISOString();
+        set((state) => ({
+          recentProjects: state.recentProjects.map((project) =>
+            project.id === id
+              ? {
+                  ...project,
+                  title: cleanTitle,
+                  updatedAt,
+                  cloudSyncStatus: user ? 'pending' : 'local',
+                }
+              : project
+          ),
+          ...(currentProjectId === id ? { currentProjectTitle: cleanTitle } : {}),
+        }));
+
+        if (!user) return;
+
+        try {
+          const { error } = await supabase
+            .from('projects')
+            .upsert({
+              id,
+              user_id: user.id,
+              title: cleanTitle,
+              lines: projectToRename.lines,
+              video_style: projectToRename.videoStyle || get().videoStyle,
+              audio_file_name: projectToRename.audioFileName,
+              updated_at: updatedAt,
+            });
+
+          set((state) => ({
+            recentProjects: state.recentProjects.map((project) =>
+              project.id === id
+                ? { ...project, cloudSyncStatus: error ? 'error' as const : 'synced' as const }
+                : project
+            ),
+          }));
+          if (error) console.error('Failed to rename project in Supabase:', error);
+        } catch (err) {
+          console.error('Error renaming project in Supabase:', err);
+          set((state) => ({
+            recentProjects: state.recentProjects.map((project) =>
+              project.id === id ? { ...project, cloudSyncStatus: 'error' as const } : project
+            ),
+          }));
         }
       },
 
@@ -983,28 +1076,16 @@ export const useKaraokeStore = create<KaraokeState>()(
         get().pushHistory(updatedLines);
       },
       
-      shiftAllTimings: (offset) => {
+      shiftAllTimings: (offset, options = {}) => {
         const { lines } = get();
-        const updatedLines = lines.map((line) => {
-          const newWords = line.words.map((w) => {
-            if (w.time === null) return w;
-            return { ...w, time: Number(Math.max(0, w.time + offset).toFixed(2)) };
-          });
-          
-          let newLineTime = line.time;
-          if (line.time !== null) {
-            newLineTime = Number(Math.max(0, line.time + offset).toFixed(2));
-          }
-
-          return {
-            ...line,
-            time: newLineTime,
-            words: newWords,
-          };
-        });
+        const preview = createTimingOffsetPreview(lines, offset);
+        if (preview.requiresClipping && !options.clipNegative) return preview;
+        if (preview.affectedTimestampCount === 0 || preview.offsetSeconds === 0) return preview;
+        const updatedLines = applyTimingOffset(lines, preview.offsetSeconds, options);
         
         set({ lines: updatedLines });
         get().pushHistory(updatedLines);
+        return preview;
       },
       
       updateLineText: (id, text) => {
@@ -1220,6 +1301,12 @@ export const useKaraokeStore = create<KaraokeState>()(
       clearAll: () => {
         set({
           currentProjectId: null,
+          stemJob: null,
+          audioIdentity: {
+            sourceAudioFingerprint: null,
+            activeAudioFingerprint: null,
+            activeAudioKind: 'original',
+          },
           step: 'input',
           audioUrl: null,
           audioFileName: null,
@@ -1280,17 +1367,22 @@ export const useKaraokeStore = create<KaraokeState>()(
 
           // 1. Merge DB projects into local projects
           for (const dbProj of dbProjects || []) {
+            const dbLines = (dbProj.lines || []) as LyricLine[];
+            const reconstructedRawText = dbLines.map((line) => line.text).join('\n');
             const localMatchIdx = updatedLocal.findIndex((p: any) => p.id === dbProj.id);
             if (localMatchIdx === -1) {
               // Add project from DB to local list
               updatedLocal.push({
                 id: dbProj.id,
                 title: dbProj.title,
-                rawText: '',
-                lines: dbProj.lines as LyricLine[],
+                rawText: reconstructedRawText,
+                lines: dbLines,
                 audioFileName: dbProj.audio_file_name,
                 coverColors: (dbProj.video_style as any)?.coverColors || null,
                 videoStyle: dbProj.video_style as VideoStyleOptions,
+                createdAt: dbProj.created_at || undefined,
+                updatedAt: dbProj.updated_at || dbProj.created_at || undefined,
+                cloudSyncStatus: 'synced',
               });
               changed = true;
             } else {
@@ -1298,14 +1390,20 @@ export const useKaraokeStore = create<KaraokeState>()(
               const localProj = updatedLocal[localMatchIdx];
               if (
                 JSON.stringify(localProj.lines) !== JSON.stringify(dbProj.lines) ||
-                localProj.title !== dbProj.title
+                localProj.title !== dbProj.title ||
+                localProj.updatedAt !== (dbProj.updated_at || dbProj.created_at || undefined) ||
+                localProj.cloudSyncStatus !== 'synced'
               ) {
                 updatedLocal[localMatchIdx] = {
                   ...localProj,
                   title: dbProj.title,
-                  lines: dbProj.lines as LyricLine[],
+                  rawText: localProj.rawText || reconstructedRawText,
+                  lines: dbLines,
                   audioFileName: dbProj.audio_file_name,
                   videoStyle: dbProj.video_style as VideoStyleOptions,
+                  createdAt: localProj.createdAt || dbProj.created_at || undefined,
+                  updatedAt: dbProj.updated_at || dbProj.created_at || undefined,
+                  cloudSyncStatus: 'synced',
                 };
                 changed = true;
               }
@@ -1327,6 +1425,7 @@ export const useKaraokeStore = create<KaraokeState>()(
                 }
               }
 
+              const updatedAt = localProj.updatedAt || new Date().toISOString();
               const { error: insertError } = await supabase
                 .from('projects')
                 .insert({
@@ -1336,11 +1435,26 @@ export const useKaraokeStore = create<KaraokeState>()(
                   lines: localProj.lines,
                   video_style: localProj.videoStyle || get().videoStyle,
                   audio_file_name: localProj.audioFileName,
-                  updated_at: new Date().toISOString(),
+                  updated_at: updatedAt,
                 });
 
               if (insertError) {
                 console.error('Failed to upload local project during sync:', insertError);
+                const idx = updatedLocal.findIndex((project) => project.id === projId);
+                if (idx !== -1) {
+                  updatedLocal[idx] = { ...updatedLocal[idx], cloudSyncStatus: 'error' };
+                  changed = true;
+                }
+              } else {
+                const idx = updatedLocal.findIndex((project) => project.id === projId);
+                if (idx !== -1) {
+                  updatedLocal[idx] = {
+                    ...updatedLocal[idx],
+                    updatedAt,
+                    cloudSyncStatus: 'synced',
+                  };
+                  changed = true;
+                }
               }
             }
           }
@@ -1524,6 +1638,8 @@ export const useKaraokeStore = create<KaraokeState>()(
         audioFileName: state.audioFileName,
         currentProjectTitle: state.currentProjectTitle,
         currentProjectId: state.currentProjectId,
+        stemJob: withoutPersistedSignedUrls(state.stemJob),
+        audioIdentity: state.audioIdentity,
         theme: state.theme,
         timingMode: state.timingMode,
         snapToBeat: state.snapToBeat,

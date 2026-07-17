@@ -1,9 +1,15 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { useKaraokeStore } from '../../store/useKaraokeStore';
 import { parseLRC } from '../../utils/lrc';
 import { parseSRT, parseVTT, parseASS } from '../../utils/subtitleFormats';
 import { localization } from '../../utils/localization';
 import { FileText, Upload, ArrowRight } from 'lucide-react';
+import { audioRef } from '../../audioRef';
+import type { LyricsProviderResult } from '../../services/lyricsProvider';
+import { assessLyricsMatch, canAutoImportLyrics } from '../../utils/lyricsMatchScore';
+import { validateLyricsTimings } from '../../utils/lyricsValidation';
+import { removeAllTimings } from '../../utils/timingOffset';
+import { LyricsImportReviewModal, LyricsImportReviewData } from '../../components/LyricsImportReviewModal';
 
 export const LyricsInput: React.FC = () => {
   const {
@@ -15,9 +21,12 @@ export const LyricsInput: React.FC = () => {
     setStep,
     theme,
     language,
+    trackMetadata,
+    audioFileName,
   } = useKaraokeStore();
 
   const lrcInputRef = useRef<HTMLInputElement>(null);
+  const [pendingReview, setPendingReview] = useState<LyricsImportReviewData | null>(null);
 
   const dict = localization[language];
 
@@ -43,10 +52,49 @@ export const LyricsInput: React.FC = () => {
           }
 
           if (parsed && parsed.length > 0) {
-            setLines(parsed);
             const reconstructedRaw = parsed.map((l) => l.text).join('\n');
-            setRawText(reconstructedRaw);
-            setStep('edit');
+            const audioDuration = audioRef.current?.duration && Number.isFinite(audioRef.current.duration)
+              ? audioRef.current.duration
+              : null;
+            const displayName = file.name.replace(/\.[^/.]+$/, '');
+            const track: LyricsProviderResult = {
+              id: `local:${file.name}:${file.lastModified}`,
+              trackName: trackMetadata?.title || displayName,
+              artistName: trackMetadata?.artist || (language === 'ru' ? 'Локальный файл' : 'Local file'),
+              albumName: trackMetadata?.album || null,
+              duration: null,
+              plainLyrics: reconstructedRaw,
+              syncedLyrics: parsed.some((line) => line.time !== null) ? content : null,
+              provider: 'custom',
+            };
+            const assessment = assessLyricsMatch(track, {
+              trackName: trackMetadata?.title || audioFileName?.replace(/\.[^/.]+$/, '') || displayName,
+              artistName: trackMetadata?.artist,
+              albumName: trackMetadata?.album,
+              audioFileName,
+              duration: audioDuration,
+            });
+            const validation = validateLyricsTimings(parsed, { audioDuration });
+            const reviewData: LyricsImportReviewData = {
+              track,
+              lines: parsed,
+              rawText: ext === 'lrc' ? content : reconstructedRaw,
+              assessment,
+              validation,
+              audioDuration,
+            };
+
+            if (track.syncedLyrics && canAutoImportLyrics(assessment, validation, true)) {
+              setLines(parsed);
+              setRawText(reviewData.rawText);
+              setStep('edit');
+            } else if (track.syncedLyrics) {
+              setPendingReview(reviewData);
+            } else {
+              setLines(parsed);
+              setRawText(reconstructedRaw);
+              setStep('timing');
+            }
           } else {
             alert(language === 'ru' ? 'Не удалось распознать строки в импортируемом файле.' : 'Failed to parse subtitles in imported file.');
           }
@@ -158,6 +206,30 @@ export const LyricsInput: React.FC = () => {
           <li>{dict.lyricsQuickStartItem2}</li>
         </ul>
       </div>
+
+      <LyricsImportReviewModal
+        data={pendingReview}
+        language={language}
+        onUse={() => {
+          if (!pendingReview) return;
+          setLines(pendingReview.lines);
+          setRawText(pendingReview.rawText);
+          setStep('edit');
+          setPendingReview(null);
+        }}
+        onChooseOther={() => {
+          setPendingReview(null);
+          lrcInputRef.current?.click();
+        }}
+        onManual={() => {
+          if (!pendingReview) return;
+          const untimedLines = removeAllTimings(pendingReview.lines);
+          setLines(untimedLines);
+          setRawText(untimedLines.map((line) => line.text).join('\n'));
+          setStep('timing');
+          setPendingReview(null);
+        }}
+      />
     </div>
   );
 };

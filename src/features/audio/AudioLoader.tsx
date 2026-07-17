@@ -1,7 +1,18 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useKaraokeStore } from '../../store/useKaraokeStore';
 import { audioRef } from '../../audioRef';
-import { saveAudioToDB, loadAudioFromDB, clearAudioFromDB, saveCoverToDB, loadCoverFromDB, clearCoverFromDB } from '../../utils/db';
+import {
+  saveAudioToDB,
+  loadAudioFromDB,
+  clearAudioFromDB,
+  saveCoverToDB,
+  loadCoverFromDB,
+  clearCoverFromDB,
+  loadStemFromDB,
+  saveStemToDB,
+  loadStemSourceAudioFromDB,
+  saveStemSourceAudioToDB,
+} from '../../utils/db';
 import { extractCoverFromAudio } from '../../utils/cover';
 import { extractDominantColors } from '../../utils/colors';
 import { extractMetadataFromAudio } from '../../utils/metadata';
@@ -13,14 +24,27 @@ import { Upload, Trash2, Music, RefreshCw, Search, Smartphone, Loader2, Play, Pa
 import { supabase } from '../../services/supabaseClient';
 import { formatTime } from '../../utils/time';
 import { trackAppEvent } from '../../utils/analytics';
-
-function normalizeAutoSearchText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+import { canAutoImportLyrics, LyricsMatchTarget, rankLyricsResults, RankedLyricsResult } from '../../utils/lyricsMatchScore';
+import { removeAllTimings } from '../../utils/timingOffset';
+import { LyricsImportReviewModal, LyricsImportReviewData } from '../../components/LyricsImportReviewModal';
+import type { StemJobState, StemKind } from '../../types';
+import {
+  computeSourceFingerprint,
+  createStemJob,
+  decodeAudioDuration,
+  downloadStemAsset,
+  refreshStemAssets,
+  refreshStemJob,
+  reportStemDuration,
+  retryStemPersistence,
+  restoreLatestStemJob,
+} from '../../services/stemService';
+import {
+  canCreateStemJob,
+  instrumentalAudioIdentity,
+  originalAudioIdentity,
+  shouldWarnAboutInstrumentalDuration,
+} from '../../utils/stemRuntime';
 
 function cleanAutoSearchPart(value: string): string {
   return value
@@ -82,75 +106,61 @@ function parseAutoSearchMetadata(audioFileName: string, metadata: {
   };
 }
 
-function getStemFileLabel(file: any, language: string) {
-  const type = String(file?.type || '').toLowerCase();
-  if (type.includes('vocal')) return language === 'ru' ? 'Вокал' : 'Vocals';
-  if (type.includes('other') || type.includes('instrumental')) return language === 'ru' ? 'Минус' : 'Instrumental';
-  return file?.type || (language === 'ru' ? 'Файл' : 'File');
-}
-
-function findInstrumentalStemFile(files: any[]) {
-  return files.find((file) => {
-    const type = String(file?.type || '').toLowerCase();
-    return type.includes('other') || type.includes('instrumental');
-  }) || null;
-}
-
-function getFriendlyInstrumentalName(sourceName: string | null, projectTitle: string | null, language: string) {
+function getFriendlyInstrumentalName(
+  sourceName: string | null,
+  projectTitle: string | null,
+  language: string,
+  mimeType?: string,
+) {
   const baseName = (projectTitle || sourceName || 'karaoke')
     .replace(/\.[^/.]+$/, '')
     .replace(/\s*\((?:минус|instrumental)\)\s*$/i, '')
     .trim() || 'karaoke';
 
-  return `${baseName} (${language === 'ru' ? 'минус' : 'instrumental'}).mp3`;
+  const extension = mimeType?.includes('wav') ? 'wav'
+    : mimeType?.includes('flac') ? 'flac'
+      : mimeType?.includes('ogg') ? 'ogg'
+        : mimeType?.includes('mp4') || mimeType?.includes('m4a') ? 'm4a'
+          : 'mp3';
+  return `${baseName} (${language === 'ru' ? 'минус' : 'instrumental'}).${extension}`;
 }
 
-function pickBestAutoSearchResult(
-  results: LyricsProviderResult[],
-  title: string,
-  artist?: string | null
-): LyricsProviderResult | null {
-  if (results.length === 0) return null;
+const STEM_POLL_INTERVAL_MS = 15_000;
 
-  const targetTitle = normalizeAutoSearchText(title);
-  const targetArtist = artist ? normalizeAutoSearchText(artist) : '';
-
-  const ranked = [...results]
-    .map((result) => {
-      const resultTitle = normalizeAutoSearchText(result.trackName);
-      const resultArtist = normalizeAutoSearchText(result.artistName);
-      let score = 0;
-
-      if (resultTitle === targetTitle) score += 60;
-      else if (resultTitle.includes(targetTitle) || targetTitle.includes(resultTitle)) score += 35;
-
-      if (targetArtist) {
-        if (resultArtist === targetArtist) score += 40;
-        else if (resultArtist.includes(targetArtist) || targetArtist.includes(resultArtist)) score += 20;
-      }
-
-      if (result.syncedLyrics) score += 10;
-      return { result, score };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  return ranked[0]?.result || null;
+function getStemStatusText(job: StemJobState, language: 'ru' | 'en') {
+  const ru = language === 'ru';
+  if (job.requiresNewSeparation) return ru ? 'Внешний результат недоступен — требуется новое разделение' : 'External result unavailable — a new separation is required';
+  if (job.status === 'persisting' && job.outputsPersistError) return ru ? 'Временная ошибка сохранения результатов' : 'Temporary result persistence error';
+  const labels: Record<StemJobState['status'], [string, string]> = {
+    queued: ['Ожидает очереди', 'Waiting in queue'],
+    submitting: ['Отправляется в MVSEP', 'Submitting to MVSEP'],
+    waiting: ['Ожидает обработки MVSEP', 'Waiting for MVSEP'],
+    processing: ['Обрабатывается MVSEP', 'Processing in MVSEP'],
+    distributing: ['MVSEP подготавливает результаты', 'MVSEP is preparing results'],
+    merging: ['MVSEP объединяет результаты', 'MVSEP is merging results'],
+    persisting: ['Результаты сохраняются', 'Saving results'],
+    completed: ['Готово', 'Ready'],
+    failed: ['Ошибка задания', 'Job failed'],
+    cancelled: ['Задание отменено', 'Job cancelled'],
+  };
+  return labels[job.status][ru ? 0 : 1];
 }
 
 async function searchAutoLyricsWithFallbacks(
   queries: string[],
-  title: string,
-  artist?: string | null
-): Promise<LyricsProviderResult | null> {
+  target: LyricsMatchTarget,
+): Promise<RankedLyricsResult | null> {
   const uniqueQueries = Array.from(new Set(queries.map((query) => query.trim()).filter(Boolean)));
+  const uniqueResults = new Map<string, LyricsProviderResult>();
 
-  for (const query of uniqueQueries) {
-    const results = await searchAllLyrics(query);
-    const best = pickBestAutoSearchResult(results, title, artist);
-    if (best) return best;
-  }
+  const queryResults = await Promise.all(uniqueQueries.map((query) => searchAllLyrics(query)));
+  queryResults.forEach((results) => {
+    results.forEach((result) => {
+      uniqueResults.set(`${result.provider}:${String(result.id)}`, result);
+    });
+  });
 
-  return null;
+  return rankLyricsResults(Array.from(uniqueResults.values()), target)[0] || null;
 }
 
 export const AudioLoader: React.FC = () => {
@@ -174,7 +184,12 @@ export const AudioLoader: React.FC = () => {
     setRawText,
     setLines,
     user,
-    userProfile
+    userProfile,
+    currentProjectId,
+    stemJob,
+    setStemJob,
+    audioIdentity,
+    setAudioIdentity,
   } = useKaraokeStore();
 
   const [tgTracks, setTgTracks] = useState<any[]>([]);
@@ -184,7 +199,6 @@ export const AudioLoader: React.FC = () => {
   const [playerTime, setPlayerTime] = useState(0);
   const [playerDuration, setPlayerDuration] = useState(0);
   const [playerPlaying, setPlayerPlaying] = useState(false);
-  const [stemJob, setStemJob] = useState<any | null>(null);
   const [stemBusy, setStemBusy] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -193,6 +207,9 @@ export const AudioLoader: React.FC = () => {
   const [isRestoring, setIsRestoring] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [lyricsSearchStatus, setLyricsSearchStatus] = useState<'idle' | 'searching' | 'found' | 'not_found'>('idle');
+  const [pendingLyricsReview, setPendingLyricsReview] = useState<LyricsImportReviewData | null>(null);
+  const restoredStemSourceRef = useRef<string | null>(null);
+  const cachedVocalJobRef = useRef<string | null>(null);
 
   const dict = localization[language];
   const canUseMvsep = !!user && (
@@ -247,7 +264,7 @@ export const AudioLoader: React.FC = () => {
 
   // Автопоиск текста песни при наличии трека (срабатывает как при загрузке, так и при восстановлении из IndexedDB)
   useEffect(() => {
-    if (audioUrl && audioFileName && !rawText.trim()) {
+    if (audioUrl && audioFileName && playerDuration > 0 && !rawText.trim() && audioIdentity.activeAudioKind === 'original') {
       const searchAudioFileName = audioFileName;
 
       const cleanAudioName = cleanAutoSearchPart(audioFileName);
@@ -270,21 +287,40 @@ export const AudioLoader: React.FC = () => {
         const autoSearchToken = `${autoSearchKey}|${performance.now()}`;
         activeAutoSearchTokenRef.current = autoSearchToken;
         setLyricsSearchStatus('searching');
-        const searchPromise = searchAutoLyricsWithFallbacks(queryCandidates, searchTitle, artist);
+        const matchTarget: LyricsMatchTarget = {
+          trackName: searchTitle,
+          artistName: artist,
+          albumName: trackMetadata?.album,
+          audioFileName,
+          duration: playerDuration,
+        };
+        const searchPromise = searchAutoLyricsWithFallbacks(queryCandidates, matchTarget);
 
-        searchPromise.then((result) => {
+        searchPromise.then((rankedResult) => {
           if (
             activeAutoSearchTokenRef.current !== autoSearchToken ||
             useKaraokeStore.getState().audioFileName !== searchAudioFileName
           ) {
             return;
           }
-          if (result) {
+          if (rankedResult) {
+            const { result, assessment, validation } = rankedResult;
             if (result.syncedLyrics) {
               const parsed = parseLRC(result.syncedLyrics);
-              setLines(parsed);
-              setRawText(result.syncedLyrics);
-              setStep('timing');
+              if (canAutoImportLyrics(assessment, validation, true)) {
+                setLines(parsed);
+                setRawText(result.syncedLyrics);
+                setStep('timing');
+              } else {
+                setPendingLyricsReview({
+                  track: result,
+                  lines: parsed,
+                  rawText: result.syncedLyrics,
+                  assessment,
+                  validation,
+                  audioDuration: playerDuration,
+                });
+              }
               setLyricsSearchStatus('found');
             } else if (result.plainLyrics) {
               const parsed = parseLRC(result.plainLyrics);
@@ -314,7 +350,7 @@ export const AudioLoader: React.FC = () => {
       activeAutoSearchTokenRef.current = null;
       setLyricsSearchStatus('idle');
     }
-  }, [audioUrl, audioFileName, trackMetadata, rawText, language, setLines, setRawText]);
+  }, [audioUrl, audioFileName, trackMetadata, rawText, language, playerDuration, audioIdentity.activeAudioKind, setLines, setRawText, setStep]);
 
   const handleFile = async (file: File, meta?: { artist: string | null; title: string | null }) => {
     const isAudioMime = file.type.startsWith('audio/');
@@ -336,6 +372,17 @@ export const AudioLoader: React.FC = () => {
       : null;
     setTrackMetadata(initialMetadata);
     setLyricsSearchStatus('idle');
+    setPendingLyricsReview(null);
+    setPlayerDuration(0);
+    setPlayerTime(0);
+    setStemJob(null);
+    setAudioIdentity({
+      sourceAudioFingerprint: null,
+      activeAudioFingerprint: null,
+      activeAudioKind: 'original',
+    });
+    restoredStemSourceRef.current = null;
+    cachedVocalJobRef.current = null;
 
     const url = URL.createObjectURL(file);
     setAudio(url, file.name);
@@ -419,6 +466,15 @@ export const AudioLoader: React.FC = () => {
     setPlayerTime(0);
     setPlayerDuration(0);
     setPlayerPlaying(false);
+    setPendingLyricsReview(null);
+    setStemJob(null);
+    setAudioIdentity({
+      sourceAudioFingerprint: null,
+      activeAudioFingerprint: null,
+      activeAudioKind: 'original',
+    });
+    restoredStemSourceRef.current = null;
+    cachedVocalJobRef.current = null;
     if (audioRef.current) {
       audioRef.current.src = '';
     }
@@ -548,20 +604,152 @@ export const AudioLoader: React.FC = () => {
 
   const getCurrentAudioFile = async (): Promise<File | null> => {
     if (!audioUrl || !audioFileName) return null;
+    if (audioUrl.startsWith('blob:')) {
+      const currentBlob = await blobUrlToBlob(audioUrl);
+      if (currentBlob) return new File([currentBlob], audioFileName, { type: currentBlob.type || 'audio/mpeg' });
+    }
     const cachedFile = await loadAudioFromDB().catch(() => null);
     if (cachedFile) return cachedFile;
 
-    const blob = audioUrl.startsWith('blob:')
-      ? await blobUrlToBlob(audioUrl)
-      : await fetch(audioUrl).then((response) => response.blob()).catch(() => null);
+    const blob = await fetch(audioUrl).then((response) => response.blob()).catch(() => null);
 
     if (!blob) return null;
     return new File([blob], audioFileName, { type: blob.type || 'audio/mpeg' });
   };
 
+  useEffect(() => {
+    if (!user || !audioUrl || !audioFileName) return;
+    const sourceKey = `${user.id}|${currentProjectId || ''}|${audioFileName}|${audioUrl}`;
+    if (restoredStemSourceRef.current === sourceKey) return;
+    restoredStemSourceRef.current = sourceKey;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const file = await getCurrentAudioFile();
+        if (!file || cancelled) return;
+        const activeFingerprint = await computeSourceFingerprint(file);
+        if (cancelled) return;
+
+        let effectiveIdentity = audioIdentity;
+        if (
+          effectiveIdentity.activeAudioKind === 'original'
+          && stemJob?.sourceFingerprint
+          && stemJob.sourceFingerprint !== activeFingerprint
+        ) {
+          const cachedInstrumental = await loadStemFromDB(
+            stemJob.id,
+            stemJob.sourceFingerprint,
+            'instrumental',
+            stemJob.projectId,
+          );
+          if (cachedInstrumental && await computeSourceFingerprint(cachedInstrumental) === activeFingerprint) {
+            effectiveIdentity = instrumentalAudioIdentity(stemJob.sourceFingerprint, activeFingerprint);
+          }
+        }
+
+        if (effectiveIdentity.activeAudioKind === 'original') {
+          effectiveIdentity = originalAudioIdentity(activeFingerprint);
+        } else {
+          effectiveIdentity = {
+            ...effectiveIdentity,
+            activeAudioFingerprint: activeFingerprint,
+            sourceAudioFingerprint: effectiveIdentity.sourceAudioFingerprint || stemJob?.sourceFingerprint || null,
+          };
+        }
+        if (!cancelled) setAudioIdentity(effectiveIdentity);
+
+        const sourceFingerprint = effectiveIdentity.sourceAudioFingerprint || activeFingerprint;
+        let restored = null;
+        if (stemJob?.sourceFingerprint === sourceFingerprint) {
+          try {
+            restored = await refreshStemAssets(stemJob.id);
+          } catch {
+            restored = null;
+          }
+        }
+        if (!restored) {
+          restored = await restoreLatestStemJob({ fingerprint: sourceFingerprint, projectId: currentProjectId });
+        }
+        if (!restored && currentProjectId) {
+          restored = await restoreLatestStemJob({ fingerprint: sourceFingerprint });
+        }
+        if (!cancelled && restored) setStemJob(restored);
+      } catch (error) {
+        console.warn('Could not restore MVSEP job for the current source:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [audioUrl, audioFileName, currentProjectId, user?.id]);
+
+  useEffect(() => {
+    if (!user || !stemJob?.id || ['completed', 'failed', 'cancelled'].includes(stemJob.status)) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const updated = await refreshStemJob(stemJob.id);
+        if (!cancelled) setStemJob(updated);
+      } catch (error) {
+        console.warn('Background MVSEP polling failed:', error);
+      }
+    };
+    const intervalId = window.setInterval(() => void poll(), STEM_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [stemJob?.id, stemJob?.status, user?.id, setStemJob]);
+
+  useEffect(() => {
+    if (
+      stemJob?.status !== 'completed'
+      || !stemJob.vocal
+      || !stemJob.sourceFingerprint
+      || cachedVocalJobRef.current === stemJob.id
+    ) return;
+    cachedVocalJobRef.current = stemJob.id;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const cached = await loadStemFromDB(stemJob.id, stemJob.sourceFingerprint!, 'vocal', stemJob.projectId);
+        if (cancelled) return;
+        if (cached) {
+          if (!stemJob.vocal?.durationSeconds) {
+            const duration = await decodeAudioDuration(cached);
+            const jobWithDuration = await reportStemDuration(stemJob.id, 'vocal', duration);
+            if (!cancelled) setStemJob(jobWithDuration);
+          }
+          return;
+        }
+        const downloaded = await downloadStemAsset(stemJob, 'vocal');
+        const duration = await decodeAudioDuration(downloaded.blob);
+        await saveStemToDB(stemJob.id, stemJob.sourceFingerprint!, 'vocal', downloaded.blob, stemJob.projectId);
+        const jobWithDuration = await reportStemDuration(stemJob.id, 'vocal', duration).catch(() => downloaded.job);
+        if (!cancelled) setStemJob(jobWithDuration);
+      } catch (error) {
+        cachedVocalJobRef.current = null;
+        console.warn('Could not cache the vocal stem locally:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stemJob?.id, stemJob?.status, stemJob?.vocal?.storagePath, setStemJob]);
+
   const createMvsepJob = async () => {
     if (!canUseMvsep) {
       alert(language === 'ru' ? 'Разделение доступно только Plus/Pro пользователям.' : 'Stem separation is available for Plus/Pro users only.');
+      return;
+    }
+    if (!canCreateStemJob(audioIdentity)) {
+      alert(language === 'ru'
+        ? 'Сейчас активна минусовка. Сначала вернитесь к оригиналу — повторное разделение минусовки заблокировано.'
+        : 'The instrumental is active. Return to the original first; separating the instrumental again is blocked.');
       return;
     }
 
@@ -569,26 +757,16 @@ export const AudioLoader: React.FC = () => {
     try {
       const file = await getCurrentAudioFile();
       if (!file) throw new Error(language === 'ru' ? 'Не удалось прочитать текущий аудиофайл' : 'Could not read the current audio file');
-
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-      if (!accessToken) throw new Error(language === 'ru' ? 'Нужно войти через Telegram' : 'Please sign in first');
-
-      const formData = new FormData();
-      formData.append('audiofile', file);
-      formData.append('sep_type', '40');
-      formData.append('output_format', '0');
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mvsep-stems?action=create`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: formData,
+      const fingerprint = await computeSourceFingerprint(file);
+      setAudioIdentity(originalAudioIdentity(fingerprint));
+      await saveStemSourceAudioToDB(fingerprint, file);
+      const job = await createStemJob({
+        file,
+        projectId: currentProjectId,
+        durationSeconds: playerDuration,
+        fingerprint,
       });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || 'MVSEP job failed');
-      setStemJob(result.job);
+      setStemJob(job);
     } catch (err: any) {
       alert(err.message || (language === 'ru' ? 'Не удалось создать задачу MVSEP' : 'Could not create MVSEP job'));
     } finally {
@@ -600,18 +778,7 @@ export const AudioLoader: React.FC = () => {
     if (!stemJob?.id) return;
     setStemBusy(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-      if (!accessToken) throw new Error(language === 'ru' ? 'Нужно войти через Telegram' : 'Please sign in first');
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mvsep-stems?action=refresh&job_id=${encodeURIComponent(stemJob.id)}`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || 'MVSEP refresh failed');
-      setStemJob(result.job);
+      setStemJob(await refreshStemJob(stemJob.id));
     } catch (err: any) {
       alert(err.message || (language === 'ru' ? 'Не удалось обновить статус MVSEP' : 'Could not refresh MVSEP job'));
     } finally {
@@ -619,30 +786,141 @@ export const AudioLoader: React.FC = () => {
     }
   };
 
+  const retryMvsepPersistence = async () => {
+    if (!stemJob?.id) return;
+    setStemBusy(true);
+    try {
+      setStemJob(await retryStemPersistence(stemJob.id));
+    } catch (err: any) {
+      alert(err.message || (language === 'ru' ? 'Не удалось повторить сохранение stems' : 'Could not retry stem persistence'));
+    } finally {
+      setStemBusy(false);
+    }
+  };
+
+  const downloadStableStem = async (kind: StemKind) => {
+    if (!stemJob?.sourceFingerprint || !stemJob[kind]) return;
+    setStemBusy(true);
+    try {
+      let blob = await loadStemFromDB(stemJob.id, stemJob.sourceFingerprint, kind, stemJob.projectId);
+      let currentJob = stemJob;
+      if (!blob) {
+        const downloaded = await downloadStemAsset(stemJob, kind);
+        blob = downloaded.blob;
+        currentJob = downloaded.job;
+        await saveStemToDB(stemJob.id, stemJob.sourceFingerprint, kind, blob, stemJob.projectId);
+        setStemJob(currentJob);
+      }
+      await decodeAudioDuration(blob);
+      const mimeType = blob.type || currentJob[kind]?.mimeType || 'audio/mpeg';
+      const baseName = (currentProjectTitle || stemJob.sourceFileName || 'karaoke').replace(/\.[^/.]+$/, '');
+      const extension = mimeType.includes('wav') ? 'wav'
+        : mimeType.includes('flac') ? 'flac'
+          : mimeType.includes('ogg') ? 'ogg'
+            : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a'
+              : 'mp3';
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = `${baseName} (${kind === 'vocal' ? 'vocal' : 'instrumental'}).${extension}`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (err: any) {
+      alert(err.message || (language === 'ru' ? 'Не удалось скачать stem' : 'Could not download stem'));
+    } finally {
+      setStemBusy(false);
+    }
+  };
+
   const useMvsepInstrumental = async () => {
-    const instrumentalFile = findInstrumentalStemFile(stemJob?.result_files || []);
-    if (!instrumentalFile?.url) {
+    if (!stemJob?.instrumental || !stemJob.sourceFingerprint) {
       alert(language === 'ru' ? 'Минус пока не готов' : 'Instrumental is not ready yet');
       return;
     }
 
     setStemBusy(true);
     try {
-      const response = await fetch(instrumentalFile.url);
-      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+      if (!canCreateStemJob(audioIdentity)) {
+        throw new Error(language === 'ru' ? 'Минусовка уже активна' : 'The instrumental is already active');
+      }
+      const sourceFile = await getCurrentAudioFile();
+      if (!sourceFile) throw new Error(language === 'ru' ? 'Не удалось прочитать исходное аудио' : 'Could not read source audio');
+      const currentFingerprint = await computeSourceFingerprint(sourceFile);
+      if (currentFingerprint !== stemJob.sourceFingerprint) {
+        throw new Error(language === 'ru'
+          ? 'Текущий аудиофайл отличается от исходника этой задачи. Минус не был подставлен.'
+          : 'The current audio differs from this job source. The instrumental was not applied.');
+      }
+      await saveStemSourceAudioToDB(stemJob.sourceFingerprint, sourceFile);
 
-      const blob = await response.blob();
-      const fileName = getFriendlyInstrumentalName(audioFileName, currentProjectTitle, language);
-      const file = new File([blob], fileName, { type: blob.type || 'audio/mpeg' });
+      let blob = await loadStemFromDB(
+        stemJob.id,
+        stemJob.sourceFingerprint,
+        'instrumental',
+        stemJob.projectId,
+      );
+      let currentJob = stemJob;
+      if (!blob) {
+        const downloaded = await downloadStemAsset(stemJob, 'instrumental');
+        blob = downloaded.blob;
+        currentJob = downloaded.job;
+        setStemJob(currentJob);
+        await saveStemToDB(stemJob.id, stemJob.sourceFingerprint, 'instrumental', blob, stemJob.projectId);
+      }
+
+      const instrumentalDuration = await decodeAudioDuration(blob);
+      currentJob = await reportStemDuration(stemJob.id, 'instrumental', instrumentalDuration).catch(() => currentJob);
+      setStemJob(currentJob);
+      const durationDifference = playerDuration > 0 ? Math.abs(instrumentalDuration - playerDuration) : 0;
+      const significantMismatch = shouldWarnAboutInstrumentalDuration(playerDuration, instrumentalDuration);
+      const durationDetails = playerDuration > 0
+        ? `${language === 'ru' ? 'Исходник' : 'Source'}: ${playerDuration.toFixed(3)} s\n${language === 'ru' ? 'Минус' : 'Instrumental'}: ${instrumentalDuration.toFixed(3)} s\nΔ: ${durationDifference.toFixed(3)} s`
+        : `${language === 'ru' ? 'Минус' : 'Instrumental'}: ${instrumentalDuration.toFixed(3)} s`;
+      const confirmed = window.confirm(significantMismatch
+        ? `${language === 'ru' ? 'Длительность заметно отличается. Тайминги текста могут не совпасть.' : 'Duration differs significantly. Lyrics timings may no longer match.'}\n\n${durationDetails}\n\n${language === 'ru' ? 'Всё равно подставить минус?' : 'Use the instrumental anyway?'}`
+        : `${durationDetails}\n\n${language === 'ru' ? 'Подставить этот минус вместо текущего аудио?' : 'Replace the current audio with this instrumental?'}`);
+      if (!confirmed) return;
+
+      const mimeType = blob.type || currentJob.instrumental?.mimeType || 'audio/mpeg';
+      const fileName = getFriendlyInstrumentalName(audioFileName, currentProjectTitle, language, mimeType);
+      const file = new File([blob], fileName, { type: mimeType });
+      const instrumentalFingerprint = await computeSourceFingerprint(file);
       const url = URL.createObjectURL(file);
       const titleBeforeReplace = currentProjectTitle;
 
-      setAudio(url, file.name);
-      setTrackMetadata(null);
+      if (audioUrl?.startsWith('blob:')) URL.revokeObjectURL(audioUrl);
       await saveAudioToDB(file);
+      setAudioIdentity(instrumentalAudioIdentity(stemJob.sourceFingerprint, instrumentalFingerprint));
+      setAudio(url, file.name);
       if (titleBeforeReplace) setCurrentProjectTitle(titleBeforeReplace);
     } catch (err: any) {
       alert(err.message || (language === 'ru' ? 'Не удалось подставить минус' : 'Could not use the instrumental'));
+    } finally {
+      setStemBusy(false);
+    }
+  };
+
+  const restoreOriginalAudio = async () => {
+    const sourceFingerprint = audioIdentity.sourceAudioFingerprint || stemJob?.sourceFingerprint;
+    if (!sourceFingerprint) return;
+    setStemBusy(true);
+    try {
+      const originalFile = await loadStemSourceAudioFromDB(sourceFingerprint);
+      if (!originalFile) {
+        throw new Error(language === 'ru'
+          ? 'Локальная копия оригинала недоступна. Загрузите исходный файл повторно.'
+          : 'The local original is unavailable. Please load the source file again.');
+      }
+      const actualFingerprint = await computeSourceFingerprint(originalFile);
+      if (actualFingerprint !== sourceFingerprint) throw new Error('Original audio fingerprint mismatch');
+      await decodeAudioDuration(originalFile);
+      if (audioUrl?.startsWith('blob:')) URL.revokeObjectURL(audioUrl);
+      const url = URL.createObjectURL(originalFile);
+      await saveAudioToDB(originalFile);
+      setAudioIdentity(originalAudioIdentity(sourceFingerprint));
+      setAudio(url, stemJob?.sourceFileName || originalFile.name);
+    } catch (err: any) {
+      alert(err.message || (language === 'ru' ? 'Не удалось восстановить оригинал' : 'Could not restore the original'));
     } finally {
       setStemBusy(false);
     }
@@ -969,7 +1247,7 @@ export const AudioLoader: React.FC = () => {
 
           </div>
 
-          {canUseMvsep && (
+          {user && (canUseMvsep || stemJob) && (
             <div className={`mt-3 rounded-2xl border p-3 ${
               theme === 'dark'
                 ? 'border-cyan-500/20 bg-cyan-500/10 text-zinc-200'
@@ -983,17 +1261,17 @@ export const AudioLoader: React.FC = () => {
                   </p>
                   <p className="mt-1 text-[10px] font-semibold leading-relaxed text-zinc-600 dark:text-zinc-400">
                     {stemJob
-                      ? `${language === 'ru' ? 'Статус' : 'Status'}: ${stemJob.status}${stemJob.mvsep_status ? ` / ${stemJob.mvsep_status}` : ''}`
+                      ? `${language === 'ru' ? 'Статус' : 'Status'}: ${getStemStatusText(stemJob, language)}`
                       : (language === 'ru'
                         ? 'MP3 320, очередь на сервере. Пока MVSEP free — активна одна задача одновременно.'
                         : 'MP3 320, server-side queue. While MVSEP is free, only one job runs at a time.')}
                   </p>
-                  {stemJob?.error_message && (
-                    <p className="mt-1 text-[10px] font-semibold text-red-500">{stemJob.error_message}</p>
+                  {stemJob?.errorMessage && (
+                    <p className="mt-1 text-[10px] font-semibold text-red-500">{stemJob.errorMessage}</p>
                   )}
-                  {stemJob?.provider_job_url && (
+                  {stemJob?.providerJobUrl && (
                     <a
-                      href={stemJob.provider_job_url}
+                      href={stemJob.providerJobUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="mt-1 inline-flex text-[10px] font-bold text-cyan-600 underline-offset-2 hover:underline dark:text-cyan-300"
@@ -1001,25 +1279,29 @@ export const AudioLoader: React.FC = () => {
                       {language === 'ru' ? 'Открыть задачу MVSEP' : 'Open MVSEP job'}
                     </a>
                   )}
-                  {Array.isArray(stemJob?.result_files) && stemJob.result_files.length > 0 && (
+                  {(stemJob?.vocal || stemJob?.instrumental) && (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {stemJob.result_files.map((file: any, index: number) => (
-                        <a
-                          key={`${file?.url || file?.download || index}`}
-                          href={file?.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={`inline-flex items-center justify-center rounded-lg border px-2.5 py-1.5 text-[10px] font-black transition-all ${
-                            theme === 'dark'
-                              ? 'border-cyan-400/25 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/15'
-                              : 'border-cyan-200 bg-white/70 text-cyan-700 hover:bg-white'
-                          }`}
+                      {stemJob.vocal && (
+                        <button
+                          type="button"
+                          onClick={() => void downloadStableStem('vocal')}
+                          disabled={stemBusy}
+                          className="inline-flex items-center justify-center rounded-lg border border-cyan-400/25 bg-cyan-400/10 px-2.5 py-1.5 text-[10px] font-black text-cyan-700 dark:text-cyan-200"
                         >
-                          {getStemFileLabel(file, language)}
-                          {file?.size ? ` · ${file.size}` : ''}
-                        </a>
-                      ))}
-                      {findInstrumentalStemFile(stemJob.result_files) && (
+                          {language === 'ru' ? 'Вокал' : 'Vocals'}
+                        </button>
+                      )}
+                      {stemJob.instrumental && (
+                        <button
+                          type="button"
+                          onClick={() => void downloadStableStem('instrumental')}
+                          disabled={stemBusy}
+                          className="inline-flex items-center justify-center rounded-lg border border-cyan-400/25 bg-cyan-400/10 px-2.5 py-1.5 text-[10px] font-black text-cyan-700 dark:text-cyan-200"
+                        >
+                          {language === 'ru' ? 'Минус' : 'Instrumental'}
+                        </button>
+                      )}
+                      {stemJob.instrumental && audioIdentity.activeAudioKind === 'original' && (
                         <button
                           type="button"
                           onClick={useMvsepInstrumental}
@@ -1039,6 +1321,27 @@ export const AudioLoader: React.FC = () => {
                 </div>
 
                 <div className="flex shrink-0 gap-2">
+                  {stemJob?.outputsPersistError && !stemJob.requiresNewSeparation && (
+                    <button
+                      type="button"
+                      onClick={retryMvsepPersistence}
+                      disabled={stemBusy}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-black text-amber-600 transition-all hover:bg-amber-500/10 disabled:opacity-50 dark:text-amber-300"
+                    >
+                      {stemBusy && <Loader2 size={13} className="animate-spin" />}
+                      {language === 'ru' ? 'Повторить сохранение' : 'Retry persistence'}
+                    </button>
+                  )}
+                  {audioIdentity.activeAudioKind === 'instrumental' && (
+                    <button
+                      type="button"
+                      onClick={restoreOriginalAudio}
+                      disabled={stemBusy}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-violet-500/30 px-3 py-2 text-xs font-black text-violet-600 transition-all hover:bg-violet-500/10 disabled:opacity-50 dark:text-violet-300"
+                    >
+                      {language === 'ru' ? 'Вернуть оригинал' : 'Restore original'}
+                    </button>
+                  )}
                   {stemJob?.id && !['completed', 'failed', 'cancelled'].includes(stemJob.status) && (
                     <button
                       type="button"
@@ -1050,15 +1353,17 @@ export const AudioLoader: React.FC = () => {
                       {language === 'ru' ? 'Обновить' : 'Refresh'}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={createMvsepJob}
-                    disabled={stemBusy}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-500 px-3 py-2 text-xs font-black text-white shadow-md shadow-cyan-500/20 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50"
-                  >
-                    {stemBusy ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
-                    {stemJob ? (language === 'ru' ? 'Новая задача' : 'New job') : (language === 'ru' ? 'Сделать минус' : 'Create instrumental')}
-                  </button>
+                  {audioIdentity.activeAudioKind === 'original' && (
+                    <button
+                      type="button"
+                      onClick={createMvsepJob}
+                      disabled={stemBusy}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-500 px-3 py-2 text-xs font-black text-white shadow-md shadow-cyan-500/20 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50"
+                    >
+                      {stemBusy ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
+                      {stemJob ? (language === 'ru' ? 'Новая задача' : 'New job') : (language === 'ru' ? 'Сделать минус' : 'Create instrumental')}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -1098,6 +1403,29 @@ export const AudioLoader: React.FC = () => {
       <LyricsSearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
+      />
+      <LyricsImportReviewModal
+        data={pendingLyricsReview}
+        language={language}
+        onUse={() => {
+          if (!pendingLyricsReview) return;
+          setLines(pendingLyricsReview.lines);
+          setRawText(pendingLyricsReview.rawText);
+          setStep('timing');
+          setPendingLyricsReview(null);
+        }}
+        onChooseOther={() => {
+          setPendingLyricsReview(null);
+          setIsSearchOpen(true);
+        }}
+        onManual={() => {
+          if (!pendingLyricsReview) return;
+          const untimedLines = removeAllTimings(pendingLyricsReview.lines);
+          setLines(untimedLines);
+          setRawText(pendingLyricsReview.track.plainLyrics || untimedLines.map((line) => line.text).join('\n'));
+          setStep('timing');
+          setPendingLyricsReview(null);
+        }}
       />
     </div>
   );

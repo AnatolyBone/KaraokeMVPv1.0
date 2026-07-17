@@ -15,6 +15,7 @@ export interface LyricsProviderResult {
 
 import { lrclibProviderInstance } from './lrclibService';
 import { supabaseLyricsProviderInstance } from './supabaseLyricsService';
+import { rankLyricsResults } from '../utils/lyricsMatchScore';
 
 export interface LyricsProvider {
   name: string;
@@ -68,37 +69,11 @@ export async function searchAllLyrics(query: string): Promise<LyricsProviderResu
   return results;
 }
 
-function normalizeForMatch(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function scoreLyricsResult(result: LyricsProviderResult, params: {
-  trackName: string;
-  artistName: string;
-}): number {
-  const targetTitle = normalizeForMatch(params.trackName);
-  const targetArtist = normalizeForMatch(params.artistName);
-  const resultTitle = normalizeForMatch(result.trackName);
-  const resultArtist = normalizeForMatch(result.artistName);
-
-  let score = 0;
-  if (resultTitle === targetTitle) score += 60;
-  else if (resultTitle.includes(targetTitle) || targetTitle.includes(resultTitle)) score += 35;
-
-  if (resultArtist === targetArtist) score += 40;
-  else if (resultArtist.includes(targetArtist) || targetArtist.includes(resultArtist)) score += 20;
-
-  if (result.syncedLyrics) score += 10;
-  return score;
-}
-
 async function getBroadLyricsFallback(params: {
   trackName: string;
   artistName: string;
+  albumName?: string;
+  duration?: number;
 }): Promise<LyricsProviderResult | null> {
   const query = `${params.artistName} ${params.trackName}`.trim();
   if (!query) return null;
@@ -107,9 +82,12 @@ async function getBroadLyricsFallback(params: {
     const results = await searchAllLyrics(query);
     if (results.length === 0) return null;
 
-    const ranked = [...results]
-      .map((result) => ({ result, score: scoreLyricsResult(result, params) }))
-      .sort((a, b) => b.score - a.score);
+    const ranked = rankLyricsResults(results, {
+      trackName: params.trackName,
+      artistName: params.artistName,
+      albumName: params.albumName,
+      duration: params.duration,
+    });
 
     return ranked[0]?.result || null;
   } catch (err) {
@@ -129,52 +107,22 @@ export async function getExactAllLyrics(params: {
 }): Promise<LyricsProviderResult | null> {
   const exactProviders = registeredProviders.filter((provider) => provider.getExact);
 
-  const exactResult = await new Promise<LyricsProviderResult | null>((resolve) => {
-    if (exactProviders.length === 0) {
-      resolve(null);
-      return;
+  const exactResults = (await Promise.all(exactProviders.map(async (provider) => {
+    try {
+      return await withTimeout(provider.getExact!(params), EXACT_SEARCH_TIMEOUT_MS, provider.name);
+    } catch (err) {
+      console.warn(`Exact match search in provider "${provider.name}" failed:`, err);
+      return null;
     }
+  }))).filter((result): result is LyricsProviderResult => result !== null);
 
-    let pending = exactProviders.length;
-    let settled = false;
-
-    exactProviders.forEach((provider) => {
-      try {
-        withTimeout(provider.getExact!(params), EXACT_SEARCH_TIMEOUT_MS, provider.name)
-          .then((result) => {
-            if (settled) return;
-            if (result) {
-              settled = true;
-              resolve(result);
-              return;
-            }
-
-            pending -= 1;
-            if (pending === 0) {
-              settled = true;
-              resolve(null);
-            }
-          })
-          .catch((err) => {
-            console.warn(`Exact match search in provider "${provider.name}" failed:`, err);
-            if (settled) return;
-            pending -= 1;
-            if (pending === 0) {
-              settled = true;
-              resolve(null);
-            }
-          });
-      } catch (err) {
-        console.warn(`Exact match search in provider "${provider.name}" failed:`, err);
-        pending -= 1;
-        if (!settled && pending === 0) {
-          settled = true;
-          resolve(null);
-        }
-      }
-    });
-  });
-
-  if (exactResult) return exactResult;
+  if (exactResults.length > 0) {
+    return rankLyricsResults(exactResults, {
+      trackName: params.trackName,
+      artistName: params.artistName,
+      albumName: params.albumName,
+      duration: params.duration,
+    })[0]?.result || null;
+  }
   return getBroadLyricsFallback(params);
 }

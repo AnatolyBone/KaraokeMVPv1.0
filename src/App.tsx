@@ -12,12 +12,14 @@ import { SidePanel } from './components/SidePanel';
 import { TimelineEditor } from './components/TimelineEditor';
 import { AuthSection } from './components/AuthSection';
 import { localization } from './utils/localization';
-import { Sun, Moon, Type, Clock, Edit3, Zap, Settings, Shield, HelpCircle, ChevronLeft, Library } from 'lucide-react';
+import { Sun, Moon, Type, Clock, Edit3, Zap, Settings, Shield, HelpCircle, ChevronLeft, Library, FolderOpen } from 'lucide-react';
 import { supabase } from './services/supabaseClient';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { InteractiveTour } from './components/InteractiveTour';
 import { KaraokeCatalog } from './components/KaraokeCatalog';
 import { PublicKaraokePage } from './components/PublicKaraokePage';
+import { ProjectsLibrary } from './components/ProjectsLibrary';
+import { ProjectsQuickAccess } from './components/ProjectsQuickAccess';
 import { trackAppEvent } from './utils/analytics';
 
 const getPublicKaraokeIdFromPath = () => {
@@ -43,6 +45,7 @@ const App: React.FC = () => {
     user,
     subMode,
     setSubMode,
+    currentProjectId,
   } = useKaraokeStore();
 
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -51,6 +54,7 @@ const App: React.FC = () => {
   const [publicKaraokeId, setPublicKaraokeId] = useState<string | null>(() => getPublicKaraokeIdFromPath());
   const [adminRouteOpen, setAdminRouteOpen] = useState(() => isAdminPath());
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
   const lastTrackedScreenRef = useRef<string | null>(null);
 
   const dict = localization[language];
@@ -82,7 +86,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const screen = adminRouteOpen ? 'admin' : publicKaraokeId ? 'public_karaoke' : catalogOpen ? 'catalog' : `${appMode}:${step}`;
+    const screen = adminRouteOpen ? 'admin' : publicKaraokeId ? 'public_karaoke' : projectsOpen ? 'projects' : catalogOpen ? 'catalog' : `${appMode}:${step}`;
     if (lastTrackedScreenRef.current === screen) return;
 
     lastTrackedScreenRef.current = screen;
@@ -96,10 +100,11 @@ const App: React.FC = () => {
         step,
         adminRouteOpen,
         catalogOpen,
+        projectsOpen,
         publicKaraokeId,
       },
     });
-  }, [adminRouteOpen, appMode, catalogOpen, publicKaraokeId, step, user?.id, userProfile?.telegram_id]);
+  }, [adminRouteOpen, appMode, catalogOpen, projectsOpen, publicKaraokeId, step, user?.id, userProfile?.telegram_id]);
 
   useEffect(() => {
     const shouldOpenAdmin = new URLSearchParams(window.location.search).get('admin') === '1';
@@ -185,17 +190,20 @@ const App: React.FC = () => {
     setPublicKaraokeId(null);
     setAdminRouteOpen(false);
     setCatalogOpen(false);
+    setProjectsOpen(false);
   };
 
   const openAdminRoute = () => {
     window.history.pushState({}, '', '/admin');
     setPublicKaraokeId(null);
     setCatalogOpen(false);
+    setProjectsOpen(false);
     setAdminRouteOpen(true);
   };
 
   const openPublishPanel = () => {
     setCatalogOpen(false);
+    setProjectsOpen(false);
     setPublicKaraokeId(null);
     setAppMode('editor');
     setStep('edit');
@@ -343,7 +351,7 @@ const App: React.FC = () => {
           ? 'bg-[#090913]/88 border-white/12 shadow-lg shadow-black/35' 
           : 'bg-white/82 border-zinc-200/80 shadow-sm shadow-zinc-200/60'
       }`}>
-        <div className="max-w-6xl mx-auto px-4 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto px-4 py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           
           {/* Top Row on Mobile: Logo and Mobile Controls */}
           <div className="flex items-center justify-between w-full lg:w-auto">
@@ -425,7 +433,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Navigation Step Tabs (Desktop Only) */}
-          {appMode === 'editor' && (
+          {appMode === 'editor' && !projectsOpen && !catalogOpen && (
             <nav id="editor-step-tabs" className={`hidden lg:flex items-center gap-0.5 p-1 rounded-xl border backdrop-blur-md shrink-0 shadow-sm ${headerSegmentClass}`}>
               <button
                 onClick={() => setStep('input')}
@@ -476,7 +484,11 @@ const App: React.FC = () => {
             {/* Mode Switcher */}
             <div id="app-mode-switcher" className={`flex-1 lg:flex-none flex items-center gap-1 border p-1 rounded-xl backdrop-blur-md shadow-sm ${headerSegmentClass}`}>
               <button
-                onClick={() => setAppMode('karaoke')}
+                onClick={() => {
+                  setAppMode('karaoke');
+                  setProjectsOpen(false);
+                  setCatalogOpen(false);
+                }}
                 className={`flex-1 lg:flex-none px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
                   appMode === 'karaoke' ? headerSegmentActiveClass : headerSegmentInactiveClass
                 }`}
@@ -485,7 +497,11 @@ const App: React.FC = () => {
                 <span>{dict.appModeKaraoke}</span>
               </button>
               <button
-                onClick={() => setAppMode('editor')}
+                onClick={() => {
+                  setAppMode('editor');
+                  setProjectsOpen(false);
+                  setCatalogOpen(false);
+                }}
                 className={`flex-1 lg:flex-none px-2 py-1.5 xl:px-4 xl:py-2 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
                   appMode === 'editor' ? headerSegmentActiveClass : headerSegmentInactiveClass
                 }`}
@@ -497,7 +513,25 @@ const App: React.FC = () => {
 
             <button
               onClick={() => {
+                setProjectsOpen(true);
+                setCatalogOpen(false);
+                setPublicKaraokeId(null);
+              }}
+              className={`flex shrink-0 items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-[10px] font-extrabold transition-all duration-300 hover:scale-[1.02] sm:px-3 ${
+                projectsOpen
+                  ? headerSegmentActiveClass
+                  : headerSegmentInactiveClass
+              } ${headerSegmentClass}`}
+              title={language === 'ru' ? 'Открыть мои проекты' : 'Open my projects'}
+            >
+              <FolderOpen size={14} />
+              <span className="hidden sm:inline">{language === 'ru' ? 'Мои проекты' : 'My projects'}</span>
+            </button>
+
+            <button
+              onClick={() => {
                 setCatalogOpen(true);
+                setProjectsOpen(false);
                 setPublicKaraokeId(null);
               }}
               className={`hidden sm:flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-[10px] font-extrabold transition-all duration-300 hover:scale-[1.02] ${
@@ -574,7 +608,7 @@ const App: React.FC = () => {
       </header>
 
       {/* Mobile Navigation Steps */}
-      {appMode === 'editor' && (
+      {appMode === 'editor' && !projectsOpen && !catalogOpen && (
         <div className="lg:hidden w-full border-b border-zinc-200/30 dark:border-zinc-800/30 bg-zinc-100/50 dark:bg-zinc-950/50 p-2 flex gap-1 justify-around">
           <button
             onClick={() => setStep('input')}
@@ -662,7 +696,13 @@ const App: React.FC = () => {
       <main className="relative z-10 flex-1 max-w-6xl w-full mx-auto px-4 py-6 flex flex-col lg:flex-row gap-6 items-start">
         <div className="flex-1 w-full flex flex-col gap-6">
           
-          {catalogOpen ? (
+          {projectsOpen ? (
+            <ProjectsLibrary
+              onBack={() => setProjectsOpen(false)}
+              onProjectOpened={() => setProjectsOpen(false)}
+              onPublishProject={openPublishPanel}
+            />
+          ) : catalogOpen ? (
             <div className="flex flex-col gap-4">
               <div className="flex justify-start">
                 <button
@@ -686,8 +726,14 @@ const App: React.FC = () => {
 
           {appMode === 'karaoke' ? (
             <div className="flex flex-col gap-6">
+              <ProjectsQuickAccess
+                onOpenProjects={() => {
+                  setProjectsOpen(true);
+                  setCatalogOpen(false);
+                }}
+              />
               {!user && <AuthSection />}
-              {audioUrl ? (
+              {audioUrl || currentProjectId ? (
                 <div className="flex flex-col gap-4">
                   <div className="flex justify-start">
                     <button
@@ -701,6 +747,7 @@ const App: React.FC = () => {
                           coverUrl: null,
                           coverColors: null,
                           currentProjectTitle: null,
+                          currentProjectId: null,
                         });
                       }}
                       className={`px-3.5 py-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] ${
@@ -713,6 +760,17 @@ const App: React.FC = () => {
                       {language === 'ru' ? 'Назад в каталог' : 'Back to Catalog'}
                     </button>
                   </div>
+                  {!audioUrl && (
+                    <div className={`rounded-2xl border px-4 py-3 text-xs font-semibold ${
+                      theme === 'dark'
+                        ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+                        : 'border-amber-200 bg-amber-50 text-amber-800'
+                    }`}>
+                      {language === 'ru'
+                        ? 'Локальное аудио этого проекта недоступно. Текст и тайминги открыты — загрузите исходный аудиофайл заново в блоке выше.'
+                        : 'This project’s local audio is unavailable. Lyrics and timings are open; load the source audio again above.'}
+                    </div>
+                  )}
                   <KaraokePreview />
                 </div>
               ) : (
@@ -789,7 +847,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Right Column Sidebar */}
-        <SidePanel />
+        {!projectsOpen && <SidePanel />}
       </main>
       )}
 

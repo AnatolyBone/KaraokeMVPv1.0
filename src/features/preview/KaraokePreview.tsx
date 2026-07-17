@@ -3,14 +3,15 @@ import { useKaraokeStore } from '../../store/useKaraokeStore';
 import { audioRef } from '../../audioRef';
 import { formatTime } from '../../utils/time';
 import { localization } from '../../utils/localization';
-import { Play, Pause, Music, Maximize, Minimize, Globe, FastForward } from 'lucide-react';
+import { Play, Pause, Music, Maximize, Minimize, Globe } from 'lucide-react';
+import { TimingOffsetPanel } from '../../components/TimingOffsetPanel';
 
 interface KaraokePreviewProps {
   showQuickShift?: boolean;
 }
 
 export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift = true }) => {
-  const { lines, theme, language, coverColors, shiftAllTimings } = useKaraokeStore();
+  const { lines, theme, language, coverColors } = useKaraokeStore();
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -22,7 +23,6 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
   const isScrubbingRef = useRef(false);
 
   const dict = localization[language];
-  const secLabel = language === 'ru' ? 'сек' : 'sec';
   const PREVIEW_TEXT_LEAD_SECONDS = 0.095;
 
   // Connect to audio events
@@ -449,48 +449,7 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
       </div>
 
       {showQuickShift && timedLinesCount > 0 && (
-        <div
-          className={`rounded-2xl p-4 border shadow-sm transition-all ${
-            theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'
-          }`}
-        >
-          <div className="flex flex-col items-center justify-center gap-2 mb-3 text-center">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 flex items-center justify-center gap-1.5">
-              <FastForward size={14} /> {dict.editorShiftAll}
-            </p>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-400 font-medium">
-              {dict.statsTimed} {timedLinesCount} / {lines.length}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-center gap-2 flex-wrap">
-            <button
-              onClick={() => shiftAllTimings(-0.5)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/25 transition-colors"
-            >
-              -0.5 {secLabel}
-            </button>
-            <button
-              onClick={() => shiftAllTimings(-0.2)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-600 hover:bg-red-500/25 transition-colors"
-            >
-              -0.2 {secLabel}
-            </button>
-            <div className="h-5 w-[1px] bg-zinc-200 dark:bg-zinc-800 mx-1" />
-            <button
-              onClick={() => shiftAllTimings(0.2)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/25 transition-colors"
-            >
-              +0.2 {secLabel}
-            </button>
-            <button
-              onClick={() => shiftAllTimings(0.5)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/25 transition-colors"
-            >
-              +0.5 {secLabel}
-            </button>
-          </div>
-        </div>
+        <TimingOffsetPanel />
       )}
 
       {/* Compact sidebar/list view */}
