@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { AppStep, LyricLine, WordTiming, VideoStyleOptions, UserProfile, TimingOffsetApplyOptions, TimingOffsetPreview, StemJobState, AudioIdentityState, RecentProject } from '../types';
+import { AppStep, LyricLine, WordTiming, VideoStyleOptions, UserProfile, TimingComparisonMode, StemJobState, AudioIdentityState, RecentProject } from '../types';
 import { withoutPersistedSignedUrls } from '../utils/stemRuntime';
 import { splitWordIntoSyllables } from '../utils/hyphenation';
 import { parseLRC } from '../utils/lrc';
@@ -12,7 +12,6 @@ import { extractDominantColors } from '../utils/colors';
 import {
   clearProjectMediaFromDB,
   loadCoverFromDB,
-  loadProjectAudioFromDB,
   loadProjectCoverFromDB,
   saveProjectAudioToDB,
   saveProjectCoverToDB,
@@ -20,11 +19,29 @@ import {
   saveAudioToDB,
   saveCoverToDB,
 } from '../utils/db';
-import { applyTimingOffset, createTimingOffsetPreview } from '../utils/timingOffset';
+import { getOriginalTimestamp } from '../utils/timingOffset';
+import { resolveProjectAudio } from '../utils/projectAudio';
 
 const MODERN_VIDEO_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
 
 type SavedProjectDraft = RecentProject;
+
+interface TimingHistorySnapshot {
+  lines: LyricLine[];
+  globalTimingOffset: number;
+}
+
+type ProjectVideoStylePayload = VideoStyleOptions & { globalTimingOffset?: number };
+
+function withProjectTimingOffset(style: VideoStyleOptions, globalTimingOffset: number): ProjectVideoStylePayload {
+  return { ...style, globalTimingOffset };
+}
+
+function readProjectTimingOffset(project: Pick<RecentProject, 'globalTimingOffset' | 'videoStyle'>): number {
+  const embeddedOffset = (project.videoStyle as ProjectVideoStylePayload | undefined)?.globalTimingOffset;
+  const value = project.globalTimingOffset ?? embeddedOffset ?? 0;
+  return Number.isFinite(value) ? Number(value.toFixed(3)) : 0;
+}
 
 function normalizeTrackLookup(value: string | null | undefined) {
   return (value || '')
@@ -75,6 +92,9 @@ interface KaraokeState {
   currentProjectTitle: string | null;
   rawText: string;
   lines: LyricLine[];
+  globalTimingOffset: number;
+  timingComparisonMode: TimingComparisonMode;
+  timingOffsetResetNotice: boolean;
   currentIndex: number;
   currentWordIndex: number; // Track active word in line timing mode
   isPlaying: boolean;
@@ -116,7 +136,7 @@ interface KaraokeState {
   currentSyllableIndex: number;
 
   // Undo/Redo stack
-  history: LyricLine[][];
+  history: TimingHistorySnapshot[];
   historyIndex: number;
 
   // Basic Setters
@@ -125,6 +145,10 @@ interface KaraokeState {
   setCurrentProjectTitle: (title: string | null) => void;
   setRawText: (text: string) => void;
   setLines: (lines: LyricLine[]) => void;
+  setGlobalTimingOffsetLive: (offset: number) => void;
+  commitGlobalTimingOffset: (previousOffset: number) => void;
+  setTimingComparisonMode: (mode: TimingComparisonMode) => void;
+  dismissTimingOffsetResetNotice: () => void;
   prepareLines: () => void;
   setIsPlaying: (isPlaying: boolean) => void;
   setCurrentIndex: (index: number) => void;
@@ -157,7 +181,6 @@ interface KaraokeState {
   timestampCurrentLine: (time: number) => void; // Legacy/compatibility alias
   undoLastTiming: () => void;
   resetTimings: () => void;
-  shiftAllTimings: (offset: number, options?: TimingOffsetApplyOptions) => TimingOffsetPreview;
   
   // Edit Methods (Undoable)
   updateLineText: (id: string, text: string) => void;
@@ -250,6 +273,9 @@ export const useKaraokeStore = create<KaraokeState>()(
       },
       rawText: '',
       lines: [],
+      globalTimingOffset: 0,
+      timingComparisonMode: 'shifted',
+      timingOffsetResetNotice: false,
       currentIndex: 0,
       currentWordIndex: 0,
       isPlaying: false,
@@ -381,7 +407,7 @@ export const useKaraokeStore = create<KaraokeState>()(
       setSyncing: (syncing) => set({ syncing }),
 
       saveCurrentAsProject: async (title) => {
-        const { lines, rawText, audioFileName, coverColors, recentProjects, currentProjectId, user, audioIdentity } = get();
+        const { lines, rawText, audioFileName, coverColors, recentProjects, currentProjectId, user, audioIdentity, globalTimingOffset } = get();
         const cleanTitle = title.trim() || audioFileName?.replace(/\.[^/.]+$/, '') || 'Без названия';
         const id = currentProjectId || crypto.randomUUID();
         const now = new Date().toISOString();
@@ -399,6 +425,8 @@ export const useKaraokeStore = create<KaraokeState>()(
           createdAt: existingProject?.createdAt || now,
           updatedAt: now,
           cloudSyncStatus: user ? 'pending' : 'local',
+          legacyProjectIds: existingProject?.legacyProjectIds,
+          globalTimingOffset,
         };
 
         // Remove duplicate with same audioFileName if necessary
@@ -432,7 +460,7 @@ export const useKaraokeStore = create<KaraokeState>()(
                 user_id: user.id,
                 title: cleanTitle,
                 lines,
-                video_style: get().videoStyle,
+                video_style: withProjectTimingOffset(get().videoStyle, globalTimingOffset),
                 audio_file_name: audioFileName,
                 updated_at: now,
               });
@@ -470,7 +498,8 @@ export const useKaraokeStore = create<KaraokeState>()(
             URL.revokeObjectURL(previousAudioUrl);
           }
 
-          let projectAudio = await loadProjectAudioFromDB(project.id);
+          const audioResolution = await resolveProjectAudio(project);
+          let projectAudio = audioResolution.audio;
           let projectCover = await loadProjectCoverFromDB(project.id);
 
           if (!projectAudio && user && userProfile?.telegram_id && project.audioFileName) {
@@ -522,6 +551,7 @@ export const useKaraokeStore = create<KaraokeState>()(
           const restoredCoverColors = coverUrl
             ? await extractDominantColors(coverUrl).catch(() => project.coverColors)
             : project.coverColors;
+          const restoredTimingOffset = readProjectTimingOffset(project);
 
           try {
             if (projectAudio) {
@@ -545,14 +575,17 @@ export const useKaraokeStore = create<KaraokeState>()(
             audioUrl,
             rawText: project.rawText || project.lines.map((line) => line.text).join('\n'),
             lines: project.lines,
-            audioFileName: projectAudio ? project.audioFileName : null,
+            globalTimingOffset: restoredTimingOffset,
+            timingComparisonMode: 'shifted',
+            timingOffsetResetNotice: false,
+            audioFileName: projectAudio ? (project.audioFileName || projectAudio.name) : null,
             currentProjectTitle: project.title,
             coverUrl,
             coverColors: restoredCoverColors,
             step: 'edit',
             currentIndex: project.lines.filter(l => l.time !== null).length,
             currentWordIndex: 0,
-            history: [project.lines],
+            history: [{ lines: project.lines, globalTimingOffset: restoredTimingOffset }],
             historyIndex: 0,
             ...(project.videoStyle ? { videoStyle: project.videoStyle } : {})
           });
@@ -591,7 +624,10 @@ export const useKaraokeStore = create<KaraokeState>()(
               user_id: user.id,
               title: cleanTitle,
               lines: projectToRename.lines,
-              video_style: projectToRename.videoStyle || get().videoStyle,
+              video_style: withProjectTimingOffset(
+                projectToRename.videoStyle || get().videoStyle,
+                readProjectTimingOffset(projectToRename),
+              ),
               audio_file_name: projectToRename.audioFileName,
               updated_at: updatedAt,
             });
@@ -616,13 +652,15 @@ export const useKaraokeStore = create<KaraokeState>()(
 
       deleteProject: async (id) => {
         const { recentProjects, currentProjectId, user } = get();
+        const projectToDelete = recentProjects.find((project) => project.id === id);
         set({
           recentProjects: recentProjects.filter(p => p.id !== id),
           ...(currentProjectId === id ? { currentProjectId: null } : {})
         });
 
         try {
-          await clearProjectMediaFromDB(id);
+          const projectIds = Array.from(new Set([id, ...(projectToDelete?.legacyProjectIds || [])]));
+          await Promise.all(projectIds.map((projectId) => clearProjectMediaFromDB(projectId)));
         } catch (err) {
           console.warn('Failed to delete project media from IndexedDB:', err);
         }
@@ -767,13 +805,47 @@ export const useKaraokeStore = create<KaraokeState>()(
       },
       
       setLines: (lines) => {
+        const state = get();
+        const hadTimingOffset = state.globalTimingOffset !== 0;
         const updatedLines = lines.map(l => ({
           ...l,
           words: l.words || textToWords(l.text)
         }));
-        set({ lines: updatedLines });
-        get().pushHistory(updatedLines);
+        const nextHistory = state.history.slice(0, state.historyIndex + 1);
+        if (nextHistory.length === 0 && state.lines.length > 0) {
+          nextHistory.push({ lines: state.lines, globalTimingOffset: state.globalTimingOffset });
+        }
+        nextHistory.push({ lines: updatedLines, globalTimingOffset: 0 });
+        set({
+          lines: updatedLines,
+          globalTimingOffset: 0,
+          timingComparisonMode: 'shifted',
+          timingOffsetResetNotice: hadTimingOffset,
+          history: nextHistory,
+          historyIndex: nextHistory.length - 1,
+        });
       },
+
+      setGlobalTimingOffsetLive: (offset) => {
+        if (!Number.isFinite(offset)) return;
+        set({ globalTimingOffset: Number(offset.toFixed(3)), timingOffsetResetNotice: false });
+      },
+
+      commitGlobalTimingOffset: (previousOffset) => {
+        const { lines, globalTimingOffset, history, historyIndex } = get();
+        const before = Number.isFinite(previousOffset) ? Number(previousOffset.toFixed(3)) : 0;
+        if (before === globalTimingOffset) return;
+        const nextHistory = history.slice(0, historyIndex + 1);
+        const currentSnapshot = nextHistory[nextHistory.length - 1];
+        if (!currentSnapshot || currentSnapshot.globalTimingOffset !== before || currentSnapshot.lines !== lines) {
+          nextHistory.push({ lines, globalTimingOffset: before });
+        }
+        nextHistory.push({ lines, globalTimingOffset });
+        set({ history: nextHistory, historyIndex: nextHistory.length - 1 });
+      },
+
+      setTimingComparisonMode: (timingComparisonMode) => set({ timingComparisonMode }),
+      dismissTimingOffsetResetNotice: () => set({ timingOffsetResetNotice: false }),
       
       prepareLines: () => {
         const { rawText } = get();
@@ -816,10 +888,13 @@ export const useKaraokeStore = create<KaraokeState>()(
           set({
             currentProjectId: null,
             lines: processedLines,
+            globalTimingOffset: 0,
+            timingComparisonMode: 'shifted',
+            timingOffsetResetNotice: false,
             currentIndex: 0,
             currentWordIndex: 0,
             step: 'timing',
-            history: [processedLines],
+            history: [{ lines: processedLines, globalTimingOffset: 0 }],
             historyIndex: 0,
           });
         }
@@ -837,10 +912,10 @@ export const useKaraokeStore = create<KaraokeState>()(
 
       // History push helper
       pushHistory: (newLines) => {
-        const { history, historyIndex } = get();
+        const { history, historyIndex, globalTimingOffset } = get();
         const nextHistory = history.slice(0, historyIndex + 1);
         set({
-          history: [...nextHistory, newLines],
+          history: [...nextHistory, { lines: newLines, globalTimingOffset }],
           historyIndex: nextHistory.length,
         });
       },
@@ -850,7 +925,8 @@ export const useKaraokeStore = create<KaraokeState>()(
         if (historyIndex <= 0) return;
         const prevIndex = historyIndex - 1;
         set({
-          lines: history[prevIndex],
+          lines: history[prevIndex].lines,
+          globalTimingOffset: history[prevIndex].globalTimingOffset,
           historyIndex: prevIndex,
         });
       },
@@ -860,13 +936,14 @@ export const useKaraokeStore = create<KaraokeState>()(
         if (historyIndex >= history.length - 1) return;
         const nextIndex = historyIndex + 1;
         set({
-          lines: history[nextIndex],
+          lines: history[nextIndex].lines,
+          globalTimingOffset: history[nextIndex].globalTimingOffset,
           historyIndex: nextIndex,
         });
       },
 
       timestampCurrent: (time) => {
-        const { lines, currentIndex, currentWordIndex, currentSyllableIndex, timingMode, syllableMode, snapToBeat, beats } = get();
+        const { lines, currentIndex, currentWordIndex, currentSyllableIndex, timingMode, syllableMode, snapToBeat, beats, globalTimingOffset } = get();
         if (currentIndex >= lines.length) return;
 
         let timestamp = time;
@@ -880,7 +957,7 @@ export const useKaraokeStore = create<KaraokeState>()(
           }
         }
 
-        const finalTime = Number(timestamp.toFixed(2));
+        const finalTime = Number(getOriginalTimestamp(timestamp, globalTimingOffset).toFixed(2));
         const updatedLines = [...lines];
         const currentLine = { ...updatedLines[currentIndex] };
 
@@ -1074,18 +1151,6 @@ export const useKaraokeStore = create<KaraokeState>()(
           currentWordIndex: 0,
         });
         get().pushHistory(updatedLines);
-      },
-      
-      shiftAllTimings: (offset, options = {}) => {
-        const { lines } = get();
-        const preview = createTimingOffsetPreview(lines, offset);
-        if (preview.requiresClipping && !options.clipNegative) return preview;
-        if (preview.affectedTimestampCount === 0 || preview.offsetSeconds === 0) return preview;
-        const updatedLines = applyTimingOffset(lines, preview.offsetSeconds, options);
-        
-        set({ lines: updatedLines });
-        get().pushHistory(updatedLines);
-        return preview;
       },
       
       updateLineText: (id, text) => {
@@ -1313,6 +1378,9 @@ export const useKaraokeStore = create<KaraokeState>()(
           currentProjectTitle: null,
           rawText: '',
           lines: [],
+          globalTimingOffset: 0,
+          timingComparisonMode: 'shifted',
+          timingOffsetResetNotice: false,
           currentIndex: 0,
           currentWordIndex: 0,
           isPlaying: false,
@@ -1364,6 +1432,7 @@ export const useKaraokeStore = create<KaraokeState>()(
           const localProjects = [...recentProjects];
           let updatedLocal = [...localProjects];
           let changed = false;
+          let remappedCurrentProjectId: string | null = null;
 
           // 1. Merge DB projects into local projects
           for (const dbProj of dbProjects || []) {
@@ -1380,6 +1449,7 @@ export const useKaraokeStore = create<KaraokeState>()(
                 audioFileName: dbProj.audio_file_name,
                 coverColors: (dbProj.video_style as any)?.coverColors || null,
                 videoStyle: dbProj.video_style as VideoStyleOptions,
+                globalTimingOffset: Number((dbProj.video_style as ProjectVideoStylePayload | null)?.globalTimingOffset || 0),
                 createdAt: dbProj.created_at || undefined,
                 updatedAt: dbProj.updated_at || dbProj.created_at || undefined,
                 cloudSyncStatus: 'synced',
@@ -1391,6 +1461,7 @@ export const useKaraokeStore = create<KaraokeState>()(
               if (
                 JSON.stringify(localProj.lines) !== JSON.stringify(dbProj.lines) ||
                 localProj.title !== dbProj.title ||
+                readProjectTimingOffset(localProj) !== Number((dbProj.video_style as ProjectVideoStylePayload | null)?.globalTimingOffset || 0) ||
                 localProj.updatedAt !== (dbProj.updated_at || dbProj.created_at || undefined) ||
                 localProj.cloudSyncStatus !== 'synced'
               ) {
@@ -1401,6 +1472,7 @@ export const useKaraokeStore = create<KaraokeState>()(
                   lines: dbLines,
                   audioFileName: dbProj.audio_file_name,
                   videoStyle: dbProj.video_style as VideoStyleOptions,
+                  globalTimingOffset: Number((dbProj.video_style as ProjectVideoStylePayload | null)?.globalTimingOffset || 0),
                   createdAt: localProj.createdAt || dbProj.created_at || undefined,
                   updatedAt: dbProj.updated_at || dbProj.created_at || undefined,
                   cloudSyncStatus: 'synced',
@@ -1417,10 +1489,21 @@ export const useKaraokeStore = create<KaraokeState>()(
               let projId = localProj.id;
               const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projId);
               if (!isUuid) {
+                const legacyProjectId = projId;
                 projId = crypto.randomUUID();
                 const idx = updatedLocal.findIndex((p: any) => p.id === localProj.id);
                 if (idx !== -1) {
-                  updatedLocal[idx].id = projId;
+                  updatedLocal[idx] = {
+                    ...updatedLocal[idx],
+                    id: projId,
+                    legacyProjectIds: Array.from(new Set([
+                      ...(updatedLocal[idx].legacyProjectIds || []),
+                      legacyProjectId,
+                    ])),
+                  };
+                  if (get().currentProjectId === legacyProjectId) {
+                    remappedCurrentProjectId = projId;
+                  }
                   changed = true;
                 }
               }
@@ -1433,7 +1516,10 @@ export const useKaraokeStore = create<KaraokeState>()(
                   user_id: user.id,
                   title: localProj.title,
                   lines: localProj.lines,
-                  video_style: localProj.videoStyle || get().videoStyle,
+                  video_style: withProjectTimingOffset(
+                    localProj.videoStyle || get().videoStyle,
+                    readProjectTimingOffset(localProj),
+                  ),
                   audio_file_name: localProj.audioFileName,
                   updated_at: updatedAt,
                 });
@@ -1460,7 +1546,10 @@ export const useKaraokeStore = create<KaraokeState>()(
           }
 
           if (changed) {
-            set({ recentProjects: updatedLocal });
+            set({
+              recentProjects: updatedLocal,
+              ...(remappedCurrentProjectId ? { currentProjectId: remappedCurrentProjectId } : {}),
+            });
           }
         } catch (err) {
           console.error('Error in syncProjects:', err);
@@ -1635,6 +1724,7 @@ export const useKaraokeStore = create<KaraokeState>()(
         step: state.step,
         rawText: state.rawText,
         lines: state.lines,
+        globalTimingOffset: state.globalTimingOffset,
         audioFileName: state.audioFileName,
         currentProjectTitle: state.currentProjectTitle,
         currentProjectId: state.currentProjectId,
@@ -1652,7 +1742,9 @@ export const useKaraokeStore = create<KaraokeState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state && state.lines && state.lines.length > 0) {
-          state.history = [state.lines];
+          state.globalTimingOffset = Number.isFinite(state.globalTimingOffset) ? state.globalTimingOffset : 0;
+          state.timingComparisonMode = 'shifted';
+          state.history = [{ lines: state.lines, globalTimingOffset: state.globalTimingOffset }];
           state.historyIndex = 0;
           
           const timedCount = state.lines.filter(l => l.time !== null).length;

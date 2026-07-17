@@ -1,14 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useKaraokeStore } from '../../store/useKaraokeStore';
 import { audioRef, seekAudio, toggleAudioPlay } from '../../audioRef';
 import { formatTime } from '../../utils/time';
 import { Waveform } from '../../components/Waveform';
 import { localization } from '../../utils/localization';
 import { Play, Pause, RotateCcw, Undo2, Check, ArrowRight, SkipBack, SkipForward, HelpCircle, RotateCw, Touchpad } from 'lucide-react';
+import { useAudioTransport } from '../../hooks/useAudioTransport';
+import { createEffectiveTimingLines } from '../../utils/timingOffset';
 
 export const TimingPanel: React.FC = () => {
   const {
     lines,
+    globalTimingOffset,
+    timingComparisonMode,
     currentIndex,
     currentWordIndex,
     currentSyllableIndex,
@@ -29,37 +33,10 @@ export const TimingPanel: React.FC = () => {
     language,
   } = useKaraokeStore();
 
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const { currentTime, duration } = useAudioTransport();
   const [showHelp, setShowHelp] = useState(false);
 
   const dict = localization[language];
-
-  // Sync time updates for UI
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const handleTimeUpdate = () => {
-      setCurrentTime(audio.currentTime);
-    };
-
-    const handleDurationChange = () => {
-      setDuration(audio.duration || 0);
-    };
-
-    // Initial values
-    setCurrentTime(audio.currentTime);
-    setDuration(audio.duration || 0);
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('durationchange', handleDurationChange);
-
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('durationchange', handleDurationChange);
-    };
-  }, [audioRef.current]);
 
   const handleSpaceClick = () => {
     if (audioRef.current) {
@@ -71,10 +48,14 @@ export const TimingPanel: React.FC = () => {
   const timingProgress = lines.length > 0 ? (currentIndex / lines.length) * 100 : 0;
 
   // Active line indices
-  const prevLine = currentIndex > 0 ? lines[currentIndex - 1] : null;
-  const activeLine = currentIndex < lines.length ? lines[currentIndex] : null;
-  const nextLine = currentIndex + 1 < lines.length ? lines[currentIndex + 1] : null;
-  const subsequentLine = currentIndex + 2 < lines.length ? lines[currentIndex + 2] : null;
+  const previewLines = useMemo(
+    () => createEffectiveTimingLines(lines, globalTimingOffset, timingComparisonMode),
+    [lines, globalTimingOffset, timingComparisonMode],
+  );
+  const prevLine = currentIndex > 0 ? previewLines[currentIndex - 1] : null;
+  const activeLine = currentIndex < previewLines.length ? previewLines[currentIndex] : null;
+  const nextLine = currentIndex + 1 < previewLines.length ? previewLines[currentIndex + 1] : null;
+  const subsequentLine = currentIndex + 2 < previewLines.length ? previewLines[currentIndex + 2] : null;
 
   return (
     <div id="timing-panel-section" className="w-full flex flex-col gap-6">

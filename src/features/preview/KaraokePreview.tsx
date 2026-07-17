@@ -1,89 +1,29 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useKaraokeStore } from '../../store/useKaraokeStore';
 import { audioRef } from '../../audioRef';
 import { formatTime } from '../../utils/time';
 import { localization } from '../../utils/localization';
 import { Play, Pause, Music, Maximize, Minimize, Globe } from 'lucide-react';
 import { TimingOffsetPanel } from '../../components/TimingOffsetPanel';
+import { useAudioTransport } from '../../hooks/useAudioTransport';
+import { createEffectiveTimingLines } from '../../utils/timingOffset';
 
 interface KaraokePreviewProps {
   showQuickShift?: boolean;
 }
 
 export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift = true }) => {
-  const { lines, theme, language, coverColors } = useKaraokeStore();
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const { lines, globalTimingOffset, timingComparisonMode, theme, language, coverColors } = useKaraokeStore();
+  const { currentTime, duration, isPlaying } = useAudioTransport();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSimulatedFullscreen, setIsSimulatedFullscreen] = useState(false);
   
   const listRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef<number | null>(null);
   const isScrubbingRef = useRef(false);
 
   const dict = localization[language];
   const PREVIEW_TEXT_LEAD_SECONDS = 0.095;
-
-  // Connect to audio events
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const syncTime = () => {
-      setCurrentTime(audio.currentTime);
-    };
-
-    const tick = () => {
-      syncTime();
-      if (!audio.paused && !audio.ended) {
-        rafRef.current = requestAnimationFrame(tick);
-      }
-    };
-
-    const startTicker = () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-
-    const stopTicker = (syncFinal = true) => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      if (syncFinal) syncTime();
-    };
-
-    const handlePlay = () => {
-      setIsPlaying(true);
-      startTicker();
-    };
-    const handlePause = () => {
-      setIsPlaying(false);
-      stopTicker(false);
-    };
-
-    setCurrentTime(audio.currentTime);
-    setIsPlaying(!audio.paused);
-    if (!audio.paused) startTicker();
-
-    audio.addEventListener('timeupdate', syncTime);
-    audio.addEventListener('seeking', syncTime);
-    audio.addEventListener('seeked', syncTime);
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('pause', handlePause);
-    audio.addEventListener('ended', handlePause);
-
-    return () => {
-      stopTicker();
-      audio.removeEventListener('timeupdate', syncTime);
-      audio.removeEventListener('seeking', syncTime);
-      audio.removeEventListener('seeked', syncTime);
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('pause', handlePause);
-      audio.removeEventListener('ended', handlePause);
-    };
-  }, [audioRef.current]);
 
   // Listen for fullscreen changes
   useEffect(() => {
@@ -117,7 +57,11 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
   }, [isFullscreen]);
 
   // Сортируем и фильтруем только тайминговые строки
-  const timedLines = lines
+  const effectiveLines = useMemo(
+    () => createEffectiveTimingLines(lines, globalTimingOffset, timingComparisonMode),
+    [lines, globalTimingOffset, timingComparisonMode],
+  );
+  const timedLines = effectiveLines
     .map((line, originalIndex) => ({ ...line, originalIndex }))
     .filter((line) => line.time !== null)
     .sort((a, b) => (a.time || 0) - (b.time || 0));
@@ -177,7 +121,6 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
     const clickPercent = rect.width > 0 ? clickX / rect.width : 0;
     const nextTime = clickPercent * audio.duration;
     audio.currentTime = nextTime;
-    setCurrentTime(nextTime);
   };
 
   const handleProgressPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -231,7 +174,6 @@ export const KaraokePreview: React.FC<KaraokePreviewProps> = ({ showQuickShift =
     }
   };
 
-  const duration = audioRef.current ? audioRef.current.duration || 0 : 0;
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
   const hasWordSync = currentLine?.words && currentLine.words.some(w => w.time !== null);
   const isPlayerFullscreen = isFullscreen || isSimulatedFullscreen;

@@ -58,7 +58,7 @@ function clearBlobByKey(key: string): Promise<void> {
   });
 }
 
-const projectAudioKey = (projectId: string) => `project:${projectId}:audio`;
+export const getProjectAudioStorageKey = (projectId: string) => `project:${projectId}:audio`;
 const projectCoverKey = (projectId: string) => `project:${projectId}:cover`;
 const projectStemKey = (projectId: string, fingerprint: string, kind: 'vocal' | 'instrumental') =>
   `project:${projectId}:stem:${fingerprint}:${kind}`;
@@ -109,11 +109,49 @@ export function clearCoverFromDB(): Promise<void> {
 }
 
 export function saveProjectAudioToDB(projectId: string, file: File): Promise<void> {
-  return saveBlobByKey(file, projectAudioKey(projectId));
+  return saveBlobByKey(file, getProjectAudioStorageKey(projectId));
 }
 
 export function loadProjectAudioFromDB(projectId: string): Promise<File | null> {
-  return loadBlobByKey<File>(projectAudioKey(projectId));
+  return loadBlobByKey<File>(getProjectAudioStorageKey(projectId));
+}
+
+export interface StoredProjectAudioCandidate {
+  projectId: string;
+  storageKey: string;
+  audio: File;
+}
+
+export function listProjectAudioCandidatesFromDB(): Promise<StoredProjectAudioCandidate[]> {
+  return new Promise((resolve) => {
+    openMediaDB().then((db) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const cursorRequest = store.openCursor();
+      const candidates: StoredProjectAudioCandidate[] = [];
+
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) return;
+
+        if (typeof cursor.key === 'string') {
+          const match = cursor.key.match(/^project:(.+):audio$/);
+          if (match && cursor.value) {
+            candidates.push({
+              projectId: match[1],
+              storageKey: cursor.key,
+              audio: cursor.value as File,
+            });
+          }
+        }
+        cursor.continue();
+      };
+
+      transaction.oncomplete = () => resolve(candidates);
+      transaction.onerror = () => resolve([]);
+      cursorRequest.onerror = () => resolve([]);
+    }).catch(() => resolve([]));
+  });
 }
 
 export function saveProjectCoverToDB(projectId: string, file: File | Blob): Promise<void> {
@@ -164,7 +202,7 @@ export async function clearProjectStemsFromDB(projectId: string): Promise<void> 
 
 export async function clearProjectMediaFromDB(projectId: string): Promise<void> {
   await Promise.all([
-    clearBlobByKey(projectAudioKey(projectId)),
+    clearBlobByKey(getProjectAudioStorageKey(projectId)),
     clearBlobByKey(projectCoverKey(projectId)),
     clearProjectStemsFromDB(projectId),
   ]);

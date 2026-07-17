@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useKaraokeStore, getDefaultProjectTitle } from '../../store/useKaraokeStore';
 import { exportVideo } from '../../utils/video';
 import { audioRef } from '../../audioRef';
@@ -9,6 +9,7 @@ import { RenderFrame } from '../../utils/renderer/types';
 import { extractDominantColors } from '../../utils/colors';
 import { trackAppEvent } from '../../utils/analytics';
 import { FileVideo, Download, AlertCircle, RefreshCw, XCircle, CheckCircle2, Palette, Type, Eye, Film, Activity, ShieldAlert, LayoutGrid, SlidersHorizontal, Copy } from 'lucide-react';
+import { createEffectiveTimingLines } from '../../utils/timingOffset';
 
 const MODERN_VIDEO_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
 
@@ -49,6 +50,7 @@ function hexToRgba(hex: string, alpha: number): string {
 export const ExportVideoPanel: React.FC = () => {
   const {
     lines,
+    globalTimingOffset,
     audioUrl,
     audioFileName,
     currentProjectTitle,
@@ -63,6 +65,10 @@ export const ExportVideoPanel: React.FC = () => {
     user,
     userProfile
   } = useKaraokeStore();
+  const exportLines = useMemo(
+    () => createEffectiveTimingLines(lines, globalTimingOffset, 'shifted'),
+    [lines, globalTimingOffset],
+  );
   
   const [resolution, setResolution] = useState<'720p' | '1080p'>('720p');
   const [videoFormat, setVideoFormat] = useState<'mp4' | 'webm'>('mp4');
@@ -339,7 +345,7 @@ export const ExportVideoPanel: React.FC = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  const timedLinesCount = lines.filter((l) => l.time !== null).length;
+  const timedLinesCount = exportLines.filter((l) => l.time !== null).length;
   const recommendedProfile: ExportProfile =
     typeof navigator !== 'undefined' && navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4
       ? 'stable'
@@ -1034,7 +1040,7 @@ export const ExportVideoPanel: React.FC = () => {
 
       const fileNameToUse = (currentProjectTitle || '').trim() || getDefaultProjectTitle(audioFileName, lines, language);
       exportVideo({
-        lines,
+        lines: exportLines,
         audioElement: activeAudioEl,
         audioFileName: fileNameToUse,
         resolution,

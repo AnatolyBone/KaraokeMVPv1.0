@@ -1,50 +1,28 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useKaraokeStore } from '../store/useKaraokeStore';
 import { audioRef } from '../audioRef';
 import { formatTime } from '../utils/time';
 import { localization } from '../utils/localization';
 import { Sliders, Play, Pause, HelpCircle, Clock, Anchor } from 'lucide-react';
+import { useAudioTransport } from '../hooks/useAudioTransport';
+import { createEffectiveTimingLines, getOriginalTimestamp } from '../utils/timingOffset';
 
 export const TimelineEditor: React.FC = () => {
-  const { lines, updateLineTime, theme, language, beats, snapToBeat } = useKaraokeStore();
+  const { lines, globalTimingOffset, timingComparisonMode, updateLineTime, theme, language, beats, snapToBeat } = useKaraokeStore();
   
   const timelineRef = useRef<HTMLDivElement>(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const { currentTime, duration, isPlaying } = useAudioTransport();
   const [draggingLineId, setDraggingLineId] = useState<string | null>(null);
   const [isSnapped, setIsSnapped] = useState(false); // Индикатор активации магнита
 
   const dict = localization[language];
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleDurationChange = () => setDuration(audio.duration || 0);
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
-
-    setCurrentTime(audio.currentTime);
-    setDuration(audio.duration || 0);
-    setIsPlaying(!audio.paused);
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('durationchange', handleDurationChange);
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('pause', handlePause);
-
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('durationchange', handleDurationChange);
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('pause', handlePause);
-    };
-  }, [audioRef.current]);
-
   // Filter lines that are timed
-  const timedLines = lines.filter((l) => l.time !== null);
+  const effectiveLines = useMemo(
+    () => createEffectiveTimingLines(lines, globalTimingOffset, timingComparisonMode),
+    [lines, globalTimingOffset, timingComparisonMode],
+  );
+  const timedLines = useMemo(() => effectiveLines.filter((l) => l.time !== null), [effectiveLines]);
 
   const handleScrub = (e: React.MouseEvent<HTMLDivElement>) => {
     const audio = audioRef.current;
@@ -99,7 +77,8 @@ export const TimelineEditor: React.FC = () => {
       }
 
       setIsSnapped(snapped);
-      updateLineTime(draggingLineId, targetTime);
+      const activeOffset = timingComparisonMode === 'shifted' ? globalTimingOffset : 0;
+      updateLineTime(draggingLineId, getOriginalTimestamp(targetTime, activeOffset));
     };
 
     const handleMouseUp = () => {
@@ -116,7 +95,7 @@ export const TimelineEditor: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingLineId, duration, updateLineTime, beats, snapToBeat, timedLines]);
+  }, [draggingLineId, duration, updateLineTime, beats, snapToBeat, timedLines, globalTimingOffset, timingComparisonMode]);
 
   const togglePlay = () => {
     if (audioRef.current) {

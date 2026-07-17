@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useKaraokeStore } from '../store/useKaraokeStore';
 import { searchAllLyrics, LyricsProviderResult } from '../services/lyricsProvider';
-import { parseLRC } from '../utils/lrc';
 import { localization } from '../utils/localization';
 import { X, Search, RefreshCw, AlertCircle, FileText, Music } from 'lucide-react';
 import { audioRef } from '../audioRef';
-import { canAutoImportLyrics, rankLyricsResults, RankedLyricsResult } from '../utils/lyricsMatchScore';
+import { rankLyricsResults, RankedLyricsResult } from '../utils/lyricsMatchScore';
 import { removeAllTimings } from '../utils/timingOffset';
 import { LyricsImportReviewModal, LyricsImportReviewData } from './LyricsImportReviewModal';
+import { prepareLyricsImport } from '../utils/lyricsImportFlow';
 
 interface LyricsSearchModalProps {
   isOpen: boolean;
@@ -115,27 +115,16 @@ export const LyricsSearchModal: React.FC<LyricsSearchModalProps> = ({ isOpen, on
     onClose();
   };
 
-  const handleSelectTrack = ({ result: track, assessment, validation }: RankedLyricsResult) => {
+  const handleSelectTrack = (rankedResult: RankedLyricsResult) => {
     // Импортируем тайминги
-    if (track.syncedLyrics) {
-      const parsed = parseLRC(track.syncedLyrics);
-      const reviewData: LyricsImportReviewData = {
-        track,
-        lines: parsed,
-        rawText: track.syncedLyrics,
-        assessment,
-        validation,
-        audioDuration,
-      };
-      if (canAutoImportLyrics(assessment, validation, true)) {
-        importSyncedTrack(reviewData);
-      } else {
-        setPendingReview(reviewData);
-      }
-    } else if (track.plainLyrics) {
-      const parsed = parseLRC(track.plainLyrics);
-      setLines(parsed);
-      setRawText(track.plainLyrics);
+    const decision = prepareLyricsImport(rankedResult, audioDuration);
+    if (decision.kind === 'auto-import') {
+      importSyncedTrack(decision.data);
+    } else if (decision.kind === 'review') {
+      setPendingReview(decision.data);
+    } else if (decision.kind === 'plain') {
+      setLines(decision.lines);
+      setRawText(decision.rawText);
       
       const confirmSync = window.confirm(dict.searchImportNoSync);
       if (confirmSync) {
